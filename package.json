@@ -1,0 +1,31 @@
+{
+  "name": "bomberman",
+  "version": "1.0.0",
+  "description": "Multiplayer Bomberman - Phaser 3 client, Express + Socket.io server",
+  "main": "server/app.js",
+  "scripts": {
+    "start": "node server/app.js"
+  },
+  "author": "Jacob Bennett",
+  "license": "MIT",
+  "keywords": [
+    "phaser3",
+    "socket.io",
+    "bomberman",
+    "multiplayer"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.16.2",
+    "phaser": "3.60.0",
+    "phaser3-rex-plugins": "^1.60.4",
+    "serve-favicon": "^2.4.5",
+    "socket.io": "^4.1.2",
+    "uuid": "^3.1.0"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
+}

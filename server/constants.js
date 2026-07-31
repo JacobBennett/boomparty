@@ -1,0 +1,42 @@
+const TILE_SIZE = 32;
+
+const EXPLOSION_TIME = 2000;
+
+const SPOIL_CHANCE = 50;
+const SPEED = 0;
+const POWER = 1;
+const BOMBS = 2;
+
+const EMPTY_CELL = 0;
+const NON_DESTRUCTIBLE_CELL = 1;
+const DESTRUCTIBLE_CELL = 2;
+
+const INITIAL_POWER = 1;
+const INITIAL_BOMBS = 1;
+
+const COUNTDOWN_SECONDS = 5;
+const ROUND_TIME_MS = 3 * 60 * 1000;
+const WIN_DELAY_MS = 3000;
+
+const MAPS = ['hot_map', 'cold_map'];
+
+const DEFAULT_AVATAR = '/images/game/avatar64.png';
+
+module.exports = {
+  TILE_SIZE,
+  EXPLOSION_TIME,
+  SPOIL_CHANCE,
+  SPEED,
+  POWER,
+  BOMBS,
+  EMPTY_CELL,
+  DESTRUCTIBLE_CELL,
+  NON_DESTRUCTIBLE_CELL,
+  INITIAL_POWER,
+  INITIAL_BOMBS,
+  COUNTDOWN_SECONDS,
+  ROUND_TIME_MS,
+  WIN_DELAY_MS,
+  MAPS,
+  DEFAULT_AVATAR
+}
