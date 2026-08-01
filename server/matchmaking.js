@@ -25,6 +25,14 @@ function playersPayload() {
   }))
 }
 
+function lobbyPayload() {
+  return {
+    hostId: currentGame.hostId,
+    maxPlayers: currentGame.max_players,
+    players: playersPayload()
+  }
+}
+
 const Matchmaking = {
   init: function(serverSocket) {
     io = serverSocket;
@@ -47,10 +55,12 @@ const Matchmaking = {
     }
 
     if (currentGame.isFull()) {
-      // No spawn left: they watch this round and play the next one.
+      // No spawn left: they watch this round and play the next one. They still
+      // get the roster; their own id being absent tells them the game is full.
       log(socket, 'enter-game', 'Game is full, will observe once it starts');
       socket.data.role = 'observer';
       socket.join(currentGame.id);
+      socket.emit('lobby-update', lobbyPayload());
       return
     }
 
@@ -58,21 +68,31 @@ const Matchmaking = {
     socket.data.playerName = playerName;
     socket.join(currentGame.id);
     currentGame.addPlayer(socket.id, playerName);
+    if (!currentGame.hostId) { currentGame.hostId = socket.id }
     log(socket, 'enter-game', 'Player "' + playerName + '" joined the queue (' + currentGame.playersCount() + '/' + currentGame.max_players + ')');
 
-    if (currentGame.state === 'pending' && currentGame.playersCount() >= 2) {
-      Matchmaking.startCountdown();
-    } else if (currentGame.state === 'countdown') {
+    if (currentGame.state === 'countdown') {
       Matchmaking.broadcastCountdown();
+    } else {
+      Matchmaking.broadcastLobby();
     }
   },
 
-  onForceStart: function(socket) {
+  onHostStart: function(socket) {
     if (!currentGame || currentGame.state !== 'pending') { return }
-    if (socket.data.role !== 'player') { return }
+    if (socket.id !== currentGame.hostId) { return }
 
-    log(socket, 'force-start', 'Player forces the game start');
+    log(socket, 'host-start', 'Host starts the game');
     Matchmaking.startCountdown();
+  },
+
+  promoteHost: function(game) {
+    // Object key order is insertion order, so this is the earliest joiner.
+    game.hostId = Object.keys(game.players)[0] || null;
+  },
+
+  broadcastLobby: function() {
+    io.sockets.in(currentGame.id).emit('lobby-update', lobbyPayload());
   },
 
   startCountdown: function() {
@@ -94,18 +114,11 @@ const Matchmaking = {
     }, 1000);
   },
 
-  cancelCountdown: function() {
-    if (countdownTimer) {
-      clearInterval(countdownTimer);
-      countdownTimer = null;
-    }
-    currentGame.state = 'pending';
-    io.sockets.in(currentGame.id).emit('waiting-for-players');
-  },
-
   broadcastCountdown: function() {
     io.sockets.in(currentGame.id).emit('start-game-countdown', {
       countdown: countdownLeft,
+      hostId: currentGame.hostId,
+      maxPlayers: currentGame.max_players,
       players: playersPayload()
     });
   },
@@ -113,6 +126,7 @@ const Matchmaking = {
   startGame: function() {
     let game = currentGame;
     game.state = 'running';
+    game.round_ends_at = Date.now() + ROUND_TIME_MS;
     console.log('##>start-game [Game:' + game.id + '] Game starts with ' + game.playersCount() + ' player(s)');
 
     io.sockets.in(game.id).fetchSockets().then(function(sockets) {
@@ -247,12 +261,15 @@ const Matchmaking = {
       return
     }
 
+    if (socket.id === game.hostId) {
+      Matchmaking.promoteHost(game);
+    }
+
+    // Once the host commits, the countdown always runs to completion.
     if (game.state === 'countdown') {
-      if (game.playersCount() < 2) {
-        Matchmaking.cancelCountdown();
-      } else {
-        Matchmaking.broadcastCountdown();
-      }
+      Matchmaking.broadcastCountdown();
+    } else {
+      Matchmaking.broadcastLobby();
     }
   },
 

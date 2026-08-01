@@ -63,21 +63,21 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.body.setVelocity(0);
     let speed = this.currentSpeed();
 
-    if (this.cursorKeys.left.isDown || this.game.joystickKey.includes('left')) {
+    if (this.cursorKeys.left.isDown) {
       this.body.setVelocityX(-speed);
-    } else if (this.cursorKeys.right.isDown || this.game.joystickKey.includes('right')) {
+    } else if (this.cursorKeys.right.isDown) {
       this.body.setVelocityX(speed);
     }
 
-    if (this.cursorKeys.up.isDown || this.game.joystickKey.includes('up')) {
+    if (this.cursorKeys.up.isDown) {
       this.body.setVelocityY(-speed);
-    } else if (this.cursorKeys.down.isDown || this.game.joystickKey.includes('down')) {
+    } else if (this.cursorKeys.down.isDown) {
       this.body.setVelocityY(speed);
     }
   }
 
   handleBombs() {
-    if (this.cursorKeys.space.isDown || this.game.joystickButton01Key.includes('down')) {
+    if (this.cursorKeys.space.isDown) {
       let now = this.game.time.now;
 
       if (now <= this._lastBombTime) { return }
@@ -86,7 +86,6 @@ export default class Player extends Phaser.GameObjects.Sprite {
       this._lastBombTime = now + BOMB_COOLDOWN;
 
       this.socket.emit('player-bomb-create', { col: this.currentCol(), row: this.currentRow() });
-      this.game.joystickButton01Key = '';
     }
   }
 

@@ -7,11 +7,9 @@ html, body, #game-container {
   height: 100%;
 }
 
-#game-container {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+/* No flex centering here: Phaser's CENTER_BOTH positions the canvas AND its
+   DOM overlay (the name form) with the same math. A CSS-centered canvas makes
+   the overlay drift as the window resizes. */
 
 body {
   margin: 0;
