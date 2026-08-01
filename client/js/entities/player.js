@@ -26,7 +26,9 @@ export default class Player extends Phaser.GameObjects.Sprite {
     this.game.add.existing(this);
     this.game.physics.add.existing(this);
     this.body.pushable = false;
-    this.body.setCircle(13, 1, 1);
+    // Square body: Arcade's circle-vs-rect corner separation catches on the
+    // seams between adjacent wall tiles when sliding diagonally along a wall.
+    this.body.setSize(24, 24);
     this.setDepth(4);
 
     this.game.time.addEvent({

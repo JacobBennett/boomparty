@@ -11,11 +11,6 @@ export default class EnemyPlayer extends Phaser.GameObjects.Sprite {
     this.name = name;
 
     this.game.add.existing(this);
-    this.game.physics.add.existing(this);
-    this.body.pushable = false;
-    this.body.immovable = true;
-    this.body.moves = false;
-    this.body.setCircle(13, 1, 1);
     this.setDepth(4);
 
     this.defineSelf(name)

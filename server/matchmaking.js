@@ -11,7 +11,7 @@ let currentGame    = null;
 let countdownTimer = null;
 let countdownLeft  = 0;
 let roundTimer     = null;
-let bombTimers     = new Set();
+let bombTimers     = new Map(); // bomb.id -> fuse timer, so chain reactions can cancel it
 
 function log(socket, event, message) {
   console.log('==>#' + event + '# [User:' + socket.id + '] ' + message);
@@ -170,35 +170,52 @@ const Matchmaking = {
     io.sockets.in(game.id).emit('bomb-show', { id: bomb.id, ownerId: bomb.ownerId, col: bomb.col, row: bomb.row });
 
     let timer = setTimeout(function() {
-      bombTimers.delete(timer);
-      if (currentGame !== game || game.state !== 'running') { return }
-
-      let owner = game.players[bomb.ownerId];
-      if (owner && owner.activeBombs > 0) { owner.activeBombs -= 1 }
-
-      let blastedCells = bomb.detonate();
-      game.removeBomb(bomb);
-
-      // Spoils lying in the blast path (not the freshly revealed ones) burn up.
-      let destroyedSpoils = [];
-      for (let cell of blastedCells) {
-        if (cell.destroyed) { continue }
-
-        let spoil = game.findSpoilAt(cell.row, cell.col);
-        if (spoil) {
-          game.deleteSpoil(spoil.id);
-          destroyedSpoils.push({ id: spoil.id });
-        }
-      }
-
-      io.sockets.in(game.id).emit('bomb-detonate', { id: bomb.id, blastedCells: blastedCells });
-
-      if (destroyedSpoils.length > 0) {
-        io.sockets.in(game.id).emit('spoil-destroy', { spoils: destroyedSpoils });
-      }
+      bombTimers.delete(bomb.id);
+      Matchmaking.detonateBomb(game, bomb);
     }, bomb.explosion_time);
 
-    bombTimers.add(timer);
+    bombTimers.set(bomb.id, timer);
+  },
+
+  detonateBomb: function(game, bomb) {
+    if (currentGame !== game || game.state !== 'running') { return }
+    if (!game.bombs.has(bomb.id)) { return } // already went off earlier in this chain
+
+    let timer = bombTimers.get(bomb.id);
+    if (timer) {
+      clearTimeout(timer);
+      bombTimers.delete(bomb.id);
+    }
+
+    let owner = game.players[bomb.ownerId];
+    if (owner && owner.activeBombs > 0) { owner.activeBombs -= 1 }
+
+    let blastedCells = bomb.detonate();
+    game.removeBomb(bomb);
+
+    // Spoils lying in the blast path (not the freshly revealed ones) burn up.
+    let destroyedSpoils = [];
+    for (let cell of blastedCells) {
+      if (cell.destroyed) { continue }
+
+      let spoil = game.findSpoilAt(cell.row, cell.col);
+      if (spoil) {
+        game.deleteSpoil(spoil.id);
+        destroyedSpoils.push({ id: spoil.id });
+      }
+    }
+
+    io.sockets.in(game.id).emit('bomb-detonate', { id: bomb.id, blastedCells: blastedCells });
+
+    if (destroyedSpoils.length > 0) {
+      io.sockets.in(game.id).emit('spoil-destroy', { spoils: destroyedSpoils });
+    }
+
+    // Chain reaction: any bomb standing in the blast goes off immediately.
+    for (let cell of blastedCells) {
+      let other = game.findBombAt(cell.row, cell.col);
+      if (other) { Matchmaking.detonateBomb(game, other) }
+    }
   },
 
   onSpoilPickUp: function(socket, { spoilId }) {
@@ -305,7 +322,7 @@ const Matchmaking = {
   resetGame: function() {
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
     if (roundTimer) { clearTimeout(roundTimer); roundTimer = null }
-    for (let timer of bombTimers) { clearTimeout(timer) }
+    for (let timer of bombTimers.values()) { clearTimeout(timer) }
     bombTimers.clear();
 
     if (currentGame) {
