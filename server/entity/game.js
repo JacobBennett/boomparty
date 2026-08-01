@@ -136,6 +136,13 @@ class Game {
     this.bombCells.delete(bomb.row + '_' + bomb.col);
   }
 
+  findBombAt(row, col) {
+    for (let bomb of this.bombs.values()) {
+      if (bomb.row === row && bomb.col === col) { return bomb }
+    }
+    return null
+  }
+
   getMapCell(row, col) {
     if (!this.shadow_map[row]) { return undefined }
     return this.shadow_map[row][col]
