@@ -113,6 +113,7 @@ const Matchmaking = {
   startGame: function() {
     let game = currentGame;
     game.state = 'running';
+    game.round_ends_at = Date.now() + ROUND_TIME_MS;
     console.log('##>start-game [Game:' + game.id + '] Game starts with ' + game.playersCount() + ' player(s)');
 
     io.sockets.in(game.id).fetchSockets().then(function(sockets) {

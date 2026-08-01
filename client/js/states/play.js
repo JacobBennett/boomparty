@@ -1,4 +1,4 @@
-import { Virtualjoystick, Text, createCircularAvatar } from '../helpers/elements.js';
+import { Text, createCircularAvatar } from '../helpers/elements.js';
 import { findFrom, findAndDestroyFrom } from '../utils/utils.js';
 import {
   TILE_SIZE, GAME_WIDTH, GAME_HEIGHT,
@@ -25,10 +25,6 @@ class Play extends Phaser.Scene {
     this.observer = observer;
   }
 
-  preload() {
-    this.load.plugin('rexvirtualjoystickplugin', '/phaser3-rex-plugins/dist/rexvirtualjoystickplugin.min.js', false);
-  }
-
   create() {
     createCircularAvatar(this, 'avatar28', 'avatar_mask28', 'avatarCircle28', 28);
 
@@ -36,13 +32,12 @@ class Play extends Phaser.Scene {
     this.createPlayers();
     this.createBombsAndSpoils();
     this.createColliders();
+    this.createRoundTimer();
     this.setEventHandlers();
 
     this.registry.get('Sound').playMusic(this, 'bgMusic03');
 
-    if (!this.observer) {
-      this.virtualJoyStick = new Virtualjoystick({ scene: this, x: 740, y: 430, xx: 150, yy: 430 });
-    } else {
+    if (this.observer) {
       new Text({
         game: this,
         x: GAME_WIDTH / 2,
@@ -63,6 +58,36 @@ class Play extends Phaser.Scene {
 
     for (let enemy of this.enemies.getChildren()) {
       enemy.syncLabel();
+    }
+
+    this.syncRoundTimer();
+  }
+
+  // The server tells us how much round time is left; we count it down locally.
+  createRoundTimer() {
+    let remaining = this.currentGame.roundRemainingMs;
+    if (remaining == null) { return }
+
+    this.roundEndsAt = Date.now() + remaining;
+    this.timerText = this.add.text(GAME_WIDTH - 8, 9, '', {
+      font: '20px Arial',
+      fill: '#ffffff',
+      stroke: '#000000',
+      strokeThickness: 3
+    }).setOrigin(1, 0).setDepth(10);
+
+    this.syncRoundTimer();
+  }
+
+  syncRoundTimer() {
+    if (!this.timerText) { return }
+
+    let secondsLeft = Math.max(0, Math.ceil((this.roundEndsAt - Date.now()) / 1000));
+    let label = Math.floor(secondsLeft / 60) + ':' + String(secondsLeft % 60).padStart(2, '0');
+
+    if (label !== this.timerText.text) {
+      this.timerText.setText(label);
+      this.timerText.setColor(secondsLeft <= 30 ? '#ff5555' : '#ffffff');
     }
   }
 

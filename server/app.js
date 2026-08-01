@@ -12,7 +12,7 @@ app.use(express.static(path.join(__dirname, '..', 'client')));
 app.use(favicon(path.join(__dirname, '..', 'client', 'favicon.ico')));
 
 // Serve runtime libraries straight from node_modules.
-const nm_dependencies = ['phaser3-rex-plugins', 'phaser'];
+const nm_dependencies = ['phaser'];
 nm_dependencies.forEach(dep => {
   app.use(`/${dep}`, express.static(path.join(__dirname, '..', 'node_modules', dep)));
 });

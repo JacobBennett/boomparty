@@ -18,6 +18,9 @@ class Game {
     this.layer_info  = require('../../client/maps/' + this.map_name + '.json').layers[0]
     this.max_players = this.layer_info.properties.max_players
 
+    // Set when the game starts running; lets clients render the countdown.
+    this.round_ends_at = null
+
     // NOTE: we can`t use new Map - because Socket.io do not support such format
     this.players = {}
 
@@ -177,7 +180,8 @@ class Game {
       players: Object.values(this.players),
       spoils: [...this.spoils.values()],
       bombs: [...this.bombs.values()],
-      layerInfo: this.layerInfoPayload()
+      layerInfo: this.layerInfoPayload(),
+      roundRemainingMs: this.round_ends_at ? Math.max(0, this.round_ends_at - Date.now()) : null
     }
 
     if (forObserver) {
