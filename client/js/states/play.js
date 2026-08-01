@@ -69,12 +69,14 @@ class Play extends Phaser.Scene {
     if (remaining == null) { return }
 
     this.roundEndsAt = Date.now() + remaining;
-    this.timerText = this.add.text(GAME_WIDTH - 8, 9, '', {
-      font: '20px Arial',
-      fill: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 3
-    }).setOrigin(1, 0).setDepth(10);
+
+    // Same plate style as the top-left HUD strip, mirrored to the top-right.
+    let plateX = GAME_WIDTH - 105;
+    this.add.image(plateX, 2, 'placeholder_timer').setOrigin(0, 0).setDepth(10);
+    this.timerText = this.add.text(plateX + 34, 2 + 7, '', {
+      font: '14px Arial',
+      fill: '#ffffff'
+    }).setDepth(10);
 
     this.syncRoundTimer();
   }

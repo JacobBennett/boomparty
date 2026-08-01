@@ -36,6 +36,7 @@ export class Preload extends Phaser.Scene {
     this.load.image('placeholder_speed', 'images/game/placeholder_speed.png');
     this.load.image('placeholder_power', 'images/game/placeholder_power.png');
     this.load.image('placeholder_bomb',  'images/game/placeholder_bomb.png');
+    this.load.image('placeholder_timer', 'images/game/placeholder_timer.png');
 
     this.load.image('speed_up_bonus', 'images/game/speed_up_bonus.png');
     this.load.image('power_up_bonus', 'images/game/power_up_bonus.png');
