@@ -30,7 +30,7 @@ serverSocket.sockets.on('connection', function(socket) {
   console.log('==>#connection# [User:' + socket.id + '] New player is connected');
 
   socket.on('enter-game',             data => Matchmaking.onEnterGame(socket, data));
-  socket.on('force-start',            ()   => Matchmaking.onForceStart(socket));
+  socket.on('host-start',             ()   => Matchmaking.onHostStart(socket));
 
   socket.on('player-position-update', data => Matchmaking.onPositionUpdate(socket, data));
   socket.on('player-bomb-create',     data => Matchmaking.onBombCreate(socket, data));

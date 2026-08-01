@@ -1,8 +1,8 @@
 import { Text, createCircularAvatar } from '../helpers/elements.js';
 import { GAME_WIDTH, GAME_HEIGHT } from '../utils/constants.js';
 
-// Single auto-matchmaking lobby, modeled on the original deployed game:
-// type your name once, then every visit goes straight into the queue.
+// Host/guest lobby: the first player to enter hosts the room, watches the
+// roster fill up, and decides when the game starts. Everyone else waits.
 export class Lobby extends Phaser.Scene {
 
   constructor () {
@@ -12,19 +12,22 @@ export class Lobby extends Phaser.Scene {
   create() {
     this.socket = this.registry.get('socketIO');
 
-    this.add.image(GAME_WIDTH / 2, 110, 'banner').setScale(0.85);
+    // Full-canvas splash backdrop (1408x768 art, cover-scaled: crops 80px per
+    // side, keeps the logo intact). The UI lives below it, over a dark scrim.
+    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'splash').setDisplaySize(1056, 576);
+    this.add.rectangle(GAME_WIDTH / 2, 480, GAME_WIDTH, 192, 0x000000, 0.5);
 
     createCircularAvatar(this, 'avatar64', 'avatar_mask64', 'avatarCircle64', 64);
 
     this.statusText = new Text({
       game: this,
       x: GAME_WIDTH / 2,
-      y: 300,
+      y: 405,
       text: '',
-      style: { font: '35px Arial', fill: '#ffffff', align: 'center' }
+      style: { font: '24px Arial', fill: '#ffffff', align: 'center' }
     });
 
-    this.soloText = null;
+    this.startText = null;
     this.lineup = [];
     this.knownPlayers = 0;
 
@@ -32,6 +35,8 @@ export class Lobby extends Phaser.Scene {
 
     this.setEventHandlers();
 
+    // The name lives only in the Phaser registry: a page reload shows the form
+    // again and (server-side) hands host duties to the next-oldest player.
     let playerName = this.registry.get('playerName');
     if (playerName) {
       this.enterGame(playerName);
@@ -45,7 +50,7 @@ export class Lobby extends Phaser.Scene {
   showNameForm() {
     this.statusText.setText('What is your name?');
 
-    this.nameForm = this.add.dom(GAME_WIDTH / 2, 390).createFromHTML(`
+    this.nameForm = this.add.dom(GAME_WIDTH / 2, 480).createFromHTML(`
       <div class='name-form'>
         <input type='text' name='playerName' maxlength='16' placeholder='Your name' autocomplete='off'/>
         <button type='button' name='playButton'>PLAY</button>
@@ -76,82 +81,90 @@ export class Lobby extends Phaser.Scene {
   }
 
   enterGame(name) {
-    this.statusText.setText('Waiting for another player ...');
-
-    this.soloText = new Text({
-      game: this,
-      x: GAME_WIDTH / 2,
-      y: 480,
-      text: '▶ Start without waiting',
-      style: { font: '20px Arial', fill: '#41a4f5' }
-    });
-    this.soloText.setInteractive({ useHandCursor: true });
-    this.soloText.on('pointerdown', () => this.socket.emit('force-start'));
-
+    this.statusText.setText('Joining ...');
     this.socket.emit('enter-game', { name: name });
   }
 
-  onCountdown({ countdown, players }) {
-    this.statusText.setText('Get ready, game starts in ' + countdown);
+  onLobbyUpdate({ hostId, maxPlayers, players }) {
+    this.renderLobby(hostId, maxPlayers, players, null);
+  }
 
-    if (this.soloText) { this.soloText.destroy(); this.soloText = null }
+  onCountdown({ countdown, hostId, maxPlayers, players }) {
+    this.renderLobby(hostId, maxPlayers, players, countdown);
+  }
+
+  renderLobby(hostId, maxPlayers, players, countdown) {
+    let isHost = hostId === this.socket.id;
+    let joined = players.some(player => player.id === this.socket.id);
+
+    if (countdown !== null) {
+      this.statusText.setText('Get ready, game starts in ' + countdown);
+    } else if (isHost) {
+      this.statusText.setText('You are the host — start when ready');
+    } else if (joined) {
+      this.statusText.setText('Waiting for the host to start the game ...');
+    } else {
+      this.statusText.setText('Game is full — you will watch this round');
+    }
 
     if (players.length > this.knownPlayers && this.knownPlayers > 0) {
       this.registry.get('Sound').playSound(this, 'FxNewUser01');
     }
     this.knownPlayers = players.length;
 
-    this.buildLineup(players);
+    this.buildLineup(players, hostId, maxPlayers);
+
+    // The Start button is re-derived on every update, so a promoted guest
+    // grows one automatically. Never shown once the countdown is running.
+    if (this.startText) { this.startText.destroy(); this.startText = null }
+    if (countdown === null && isHost) {
+      this.startText = new Text({
+        game: this,
+        x: GAME_WIDTH / 2,
+        y: 550,
+        text: '▶ Start game',
+        style: { font: '20px Arial', fill: '#41a4f5' }
+      });
+      this.startText.setInteractive({ useHandCursor: true });
+      this.startText.on('pointerdown', () => this.socket.emit('host-start'));
+    }
   }
 
-  buildLineup(players) {
+  buildLineup(players, hostId, maxPlayers) {
     for (let item of this.lineup) { item.destroy() }
     this.lineup = [];
-
-    let me = players.find(player => player.id === this.socket.id);
-    let enemies = players.filter(player => player.id !== this.socket.id);
 
     let centerX = GAME_WIDTH / 2;
 
-    if (me) {
-      this.lineup.push(this.add.image(centerX, 380, 'avatarCircle64'));
-      this.lineup.push(new Text({
-        game: this, x: centerX, y: 425, text: me.name,
-        style: { font: '15px Arial', fill: '#ffff00' }
-      }));
-    }
-
-    if (enemies.length === 0) {
-      this.lineup.push(new Text({
-        game: this, x: centerX, y: 470, text: 'Starting game in single player mode',
-        style: { font: '20px Arial', fill: '#ffffff' }
-      }));
-      return
-    }
-
     this.lineup.push(new Text({
-      game: this, x: centerX, y: 460, text: 'vs',
-      style: { font: '20px Arial', fill: '#ffffff' }
+      game: this, x: centerX, y: 430, text: players.length + ' / ' + maxPlayers + ' players',
+      style: { font: '14px Arial', fill: '#aaaaaa' }
     }));
 
-    let pitch = Math.min(90, (GAME_WIDTH - 100) / enemies.length);
-    let startX = centerX - (pitch * (enemies.length - 1)) / 2;
+    // One row: self first (yellow name), everyone else after.
+    let me = players.filter(player => player.id === this.socket.id);
+    let others = players.filter(player => player.id !== this.socket.id);
+    let lineup = me.concat(others);
 
-    enemies.forEach((enemy, index) => {
+    let pitch = Math.min(90, (GAME_WIDTH - 100) / lineup.length);
+    let startX = centerX - (pitch * (lineup.length - 1)) / 2;
+
+    lineup.forEach((player, index) => {
       let x = startX + index * pitch;
-      this.lineup.push(this.add.image(x, 510, 'avatarCircle64').setScale(0.75));
+      if (player.id === hostId) {
+        this.lineup.push(new Text({
+          game: this, x: x, y: 452, text: '★ host',
+          style: { font: '13px Arial', fill: '#41a4f5' }
+        }));
+      }
+      this.lineup.push(this.add.image(x, 484, 'avatarCircle64').setScale(0.75));
       this.lineup.push(new Text({
-        game: this, x: x, y: 545, text: enemy.name,
-        style: { font: '13px Arial', fill: '#ffffff' }
+        game: this, x: x, y: 518, text: player.name,
+        style: player.id === this.socket.id
+          ? { font: '14px Arial', fill: '#ffff00' }
+          : { font: '13px Arial', fill: '#ffffff' }
       }));
     });
-  }
-
-  onWaiting() {
-    this.knownPlayers = 0;
-    for (let item of this.lineup) { item.destroy() }
-    this.lineup = [];
-    this.statusText.setText('Waiting for another player ...');
   }
 
   onStartGame({ game }) {
@@ -163,19 +176,20 @@ export class Lobby extends Phaser.Scene {
   }
 
   setEventHandlers() {
+    this.socket.on('lobby-update',         this.boundLobby = this.onLobbyUpdate.bind(this));
     this.socket.on('start-game-countdown', this.boundCountdown = this.onCountdown.bind(this));
-    this.socket.on('waiting-for-players',  this.boundWaiting = this.onWaiting.bind(this));
     this.socket.on('start-game',           this.boundStart = this.onStartGame.bind(this));
     this.socket.on('observe-game',         this.boundObserve = this.onObserveGame.bind(this));
   }
 
   onShutdown() {
+    this.socket.off('lobby-update',         this.boundLobby);
     this.socket.off('start-game-countdown', this.boundCountdown);
-    this.socket.off('waiting-for-players',  this.boundWaiting);
     this.socket.off('start-game',           this.boundStart);
     this.socket.off('observe-game',         this.boundObserve);
 
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
+    this.startText = null;
     this.events.off('shutdown', this.onShutdown, this);
   }
 }

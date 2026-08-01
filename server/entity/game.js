@@ -21,6 +21,9 @@ class Game {
     // Set when the game starts running; lets clients render the countdown.
     this.round_ends_at = null
 
+    // Lobby-only state: the first player to join hosts (decides when to start).
+    this.hostId = null
+
     // NOTE: we can`t use new Map - because Socket.io do not support such format
     this.players = {}
 
