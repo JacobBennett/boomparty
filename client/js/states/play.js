@@ -120,8 +120,10 @@ class Play extends Phaser.Scene {
     this.walls = this.physics.add.staticGroup();
     this.balks = this.physics.add.staticGroup();
     this.balkSprites = new Map();
+    this.solidBodies = new Map();
 
     let matrix = this.cellMatrix();
+    this.solidGrid = matrix;
 
     for (let row = 0; row < matrix.length; row++) {
       for (let col = 0; col < matrix[row].length; col++) {
@@ -131,13 +133,17 @@ class Play extends Phaser.Scene {
         this.add.image(x, y, 'tiles', FLOOR_FRAME);
 
         if (matrix[row][col] === NON_DESTRUCTIBLE_CELL) {
-          this.walls.create(x, y, 'tiles', WALL_FRAME);
+          let wall = this.walls.create(x, y, 'tiles', WALL_FRAME);
+          this.solidBodies.set(row + '_' + col, wall);
         } else if (matrix[row][col] === DESTRUCTIBLE_CELL) {
           let balk = this.balks.create(x, y, 'tiles', BALK_FRAME);
           this.balkSprites.set(row + '_' + col, balk);
+          this.solidBodies.set(row + '_' + col, balk);
         }
       }
     }
+
+    this.refreshTileFaces();
 
     this.player  = null;
     this.bones   = this.add.group();
@@ -145,6 +151,26 @@ class Play extends Phaser.Scene {
     this.spoils  = this.add.group();
     this.blasts  = this.add.group();
     this.enemies = this.add.group();
+  }
+
+  isSolidCell(row, col) {
+    if (row < 0 || col < 0 || row >= this.solidGrid.length || col >= this.solidGrid[0].length) { return true }
+    return this.solidGrid[row][col] !== EMPTY_CELL
+  }
+
+  // Disable collision on tile faces that abut another solid tile (what Phaser
+  // tilemap layers do natively). Without this, a body sliding along a flat
+  // wall catches on the seam between every pair of adjacent tile bodies.
+  refreshTileFaces() {
+    for (let [key, sprite] of this.solidBodies) {
+      let [row, col] = key.split('_').map(Number);
+      let cc = sprite.body.checkCollision;
+      cc.up    = !this.isSolidCell(row - 1, col);
+      cc.down  = !this.isSolidCell(row + 1, col);
+      cc.left  = !this.isSolidCell(row, col - 1);
+      cc.right = !this.isSolidCell(row, col + 1);
+      cc.none  = !(cc.up || cc.down || cc.left || cc.right);
+    }
   }
 
   createPlayers() {
@@ -177,7 +203,6 @@ class Play extends Phaser.Scene {
 
     this.physics.add.collider(this.player, this.walls);
     this.physics.add.collider(this.player, this.balks);
-    this.physics.add.collider(this.player, this.enemies);
 
     // You can walk off the bomb you are standing on, but never back onto a bomb.
     this.physics.add.collider(this.player, this.bombs, null, (player, bomb) => {
@@ -254,12 +279,16 @@ class Play extends Phaser.Scene {
       this.blasts.add(new FireBlast(this, cell));
     }
 
+    let destroyedAny = false;
     for (let cell of blastedCells) {
       if (!cell.destroyed) { continue }
 
       let balk = this.balkSprites.get(cell.row + '_' + cell.col);
       if (balk) {
         this.balkSprites.delete(cell.row + '_' + cell.col);
+        this.solidBodies.delete(cell.row + '_' + cell.col);
+        this.solidGrid[cell.row][cell.col] = EMPTY_CELL;
+        destroyedAny = true;
         this.balks.remove(balk);
         this.tweens.add({
           targets: balk,
@@ -269,6 +298,9 @@ class Play extends Phaser.Scene {
         });
       }
     }
+
+    // Destroyed crates re-expose the previously interior faces of their neighbors.
+    if (destroyedAny) { this.refreshTileFaces() }
 
     for (let cell of blastedCells) {
       if (!cell.destroyed || !cell.spoil) { continue }
