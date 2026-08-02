@@ -29,7 +29,8 @@ Matchmaking.init(serverSocket);
 serverSocket.sockets.on('connection', function(socket) {
   console.log('==>#connection# [User:' + socket.id + '] New player is connected');
 
-  socket.on('enter-game',             data => Matchmaking.onEnterGame(socket, data));
+  socket.on('create-room',            data => Matchmaking.onCreateRoom(socket, data));
+  socket.on('join-room',              data => Matchmaking.onJoinRoom(socket, data));
   socket.on('host-start',             ()   => Matchmaking.onHostStart(socket));
 
   socket.on('player-position-update', data => Matchmaking.onPositionUpdate(socket, data));

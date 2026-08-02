@@ -28,8 +28,13 @@ export class Lobby extends Phaser.Scene {
     });
 
     this.startText = null;
+    this.inviteText = null;
     this.lineup = [];
     this.knownPlayers = 0;
+
+    // Invite links carry the room code as ?room=CODE.
+    let urlCode = (new URLSearchParams(window.location.search).get('room') || '').toUpperCase();
+    this.urlRoomCode = /^[A-Z0-9]{6}$/.test(urlCode) ? urlCode : null;
 
     this.registry.get('Sound').playMusic(this, 'bgMusic02');
 
@@ -82,15 +87,42 @@ export class Lobby extends Phaser.Scene {
 
   enterGame(name) {
     this.statusText.setText('Joining ...');
-    this.socket.emit('enter-game', { name: name });
+
+    // A remembered room (rematch) or an invite link joins; otherwise create.
+    let code = this.registry.get('roomCode') || this.urlRoomCode;
+    if (code) {
+      this.socket.emit('join-room', { roomCode: code, name: name });
+    } else {
+      this.socket.emit('create-room', { name: name });
+    }
   }
 
-  onLobbyUpdate({ hostId, maxPlayers, players }) {
+  // Keep the room code in the registry (survives the Win -> Lobby rematch
+  // loop) and in the address bar (makes the host's own URL shareable).
+  rememberRoom(roomCode) {
+    if (!roomCode) { return }
+    this.registry.set('roomCode', roomCode);
+    history.replaceState(null, '', '/?room=' + roomCode);
+  }
+
+  onLobbyUpdate({ roomCode, hostId, maxPlayers, players }) {
+    this.rememberRoom(roomCode);
     this.renderLobby(hostId, maxPlayers, players, null);
   }
 
-  onCountdown({ countdown, hostId, maxPlayers, players }) {
+  onCountdown({ roomCode, countdown, hostId, maxPlayers, players }) {
+    this.rememberRoom(roomCode);
     this.renderLobby(hostId, maxPlayers, players, countdown);
+  }
+
+  onRoomNotFound({ roomCode }) {
+    this.registry.remove('roomCode');
+    this.urlRoomCode = null;
+    history.replaceState(null, '', '/');
+    this.statusText.setText('Room ' + roomCode + ' not found — creating a new room ...');
+    this.time.delayedCall(2000, () => {
+      this.socket.emit('create-room', { name: this.registry.get('playerName') });
+    });
   }
 
   renderLobby(hostId, maxPlayers, players, countdown) {
@@ -114,20 +146,60 @@ export class Lobby extends Phaser.Scene {
 
     this.buildLineup(players, hostId, maxPlayers);
 
-    // The Start button is re-derived on every update, so a promoted guest
-    // grows one automatically. Never shown once the countdown is running.
+    // The invite link and Start button are re-derived on every update, so a
+    // promoted guest grows a button automatically. Hidden during countdown.
+    if (this.inviteText) { this.inviteText.destroy(); this.inviteText = null }
+    if (countdown === null && joined) {
+      let url = window.location.origin + '/?room=' + this.registry.get('roomCode');
+      this.inviteText = new Text({
+        game: this,
+        x: GAME_WIDTH / 2,
+        y: 532,
+        text: 'Invite: ' + url + '  (click to copy)',
+        style: { font: '13px Arial', fill: '#41a4f5' }
+      });
+      this.inviteText.setInteractive({ useHandCursor: true });
+      this.inviteText.on('pointerdown', () => this.copyInviteLink(url));
+    }
+
     if (this.startText) { this.startText.destroy(); this.startText = null }
     if (countdown === null && isHost) {
       this.startText = new Text({
         game: this,
         x: GAME_WIDTH / 2,
-        y: 550,
+        y: 556,
         text: '▶ Start game',
         style: { font: '20px Arial', fill: '#41a4f5' }
       });
       this.startText.setInteractive({ useHandCursor: true });
       this.startText.on('pointerdown', () => this.socket.emit('host-start'));
     }
+  }
+
+  copyInviteLink(url) {
+    let onCopied = () => {
+      if (!this.inviteText) { return }
+      this.inviteText.setText('Copied!');
+      this.time.delayedCall(1500, () => {
+        if (this.inviteText) { this.inviteText.setText('Invite: ' + url + '  (click to copy)') }
+      });
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(onCopied).catch(() => this.fallbackCopy(url, onCopied));
+    } else {
+      this.fallbackCopy(url, onCopied);
+    }
+  }
+
+  // For non-secure origins where the async clipboard API is unavailable.
+  fallbackCopy(url, onCopied) {
+    let area = document.createElement('textarea');
+    area.value = url;
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand('copy'); onCopied(); } catch (error) {}
+    area.remove();
   }
 
   buildLineup(players, hostId, maxPlayers) {
@@ -171,7 +243,8 @@ export class Lobby extends Phaser.Scene {
     this.scene.start('Play', { game: game, observer: false });
   }
 
-  onObserveGame({ game }) {
+  onObserveGame({ roomCode, game }) {
+    this.rememberRoom(roomCode);
     this.scene.start('Play', { game: game, observer: true });
   }
 
@@ -180,6 +253,7 @@ export class Lobby extends Phaser.Scene {
     this.socket.on('start-game-countdown', this.boundCountdown = this.onCountdown.bind(this));
     this.socket.on('start-game',           this.boundStart = this.onStartGame.bind(this));
     this.socket.on('observe-game',         this.boundObserve = this.onObserveGame.bind(this));
+    this.socket.on('room-not-found',       this.boundNotFound = this.onRoomNotFound.bind(this));
   }
 
   onShutdown() {
@@ -187,9 +261,11 @@ export class Lobby extends Phaser.Scene {
     this.socket.off('start-game-countdown', this.boundCountdown);
     this.socket.off('start-game',           this.boundStart);
     this.socket.off('observe-game',         this.boundObserve);
+    this.socket.off('room-not-found',       this.boundNotFound);
 
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
     this.startText = null;
+    this.inviteText = null;
     this.events.off('shutdown', this.onShutdown, this);
   }
 }
