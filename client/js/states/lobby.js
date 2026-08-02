@@ -12,19 +12,35 @@ export class Lobby extends Phaser.Scene {
   create() {
     this.socket = this.registry.get('socketIO');
 
-    // Full-canvas splash backdrop (1408x768 art, cover-scaled: crops 80px per
-    // side, keeps the logo intact). The UI lives below it, over a dark scrim.
-    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'splash').setDisplaySize(1056, 576);
-    this.add.rectangle(GAME_WIDTH / 2, 480, GAME_WIDTH, 192, 0x000000, 0.5);
+    // Animated backdrop: looping muted video, cover-scaled (1280x720 x 0.8,
+    // crops 64px per side). Its own first frame sits underneath as a poster
+    // while the video loads. A full-canvas scrim keeps text readable on top.
+    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'lobbyPoster').setScale(0.8);
+    this.bgVideo = this.add.video(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'lobbyBg');
+    this.bgVideo.setMute(true);
+    // setScale, not setDisplaySize: the video has no texture frame until the
+    // first frame decodes, and setDisplaySize throws on a frameless video.
+    this.bgVideo.setScale(0.8); // 1280x720 -> 1024x576, covers the canvas
+    this.bgVideo.play(true);
+
+    // Browsers may refuse to autoplay even muted video in background tabs
+    // ("video-only background media"). Retry on the first interaction; until
+    // then the static splash underneath keeps the screen intact.
+    let resumeVideo = () => {
+      if (this.bgVideo && !this.bgVideo.isPlaying()) { this.bgVideo.play(true) }
+    };
+    this.input.on('pointerdown', resumeVideo);
+    this.input.keyboard.on('keydown', resumeVideo);
+    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.4);
 
     createCircularAvatar(this, 'avatar64', 'avatar_mask64', 'avatarCircle64', 64);
 
     this.statusText = new Text({
       game: this,
       x: GAME_WIDTH / 2,
-      y: 405,
+      y: 120,
       text: '',
-      style: { font: '24px Arial', fill: '#ffffff', align: 'center' }
+      style: { font: '28px Arial', fill: '#ffffff', align: 'center' }
     });
 
     this.startText = null;
@@ -53,9 +69,14 @@ export class Lobby extends Phaser.Scene {
   }
 
   showNameForm() {
+    // The logo lives only on the name-entry screen; once a name is submitted
+    // the lobby gets the full canvas height for its UI.
+    this.logoImage = this.add.image(GAME_WIDTH / 2, 215, 'logo').setScale(0.8);
+
+    this.statusText.setPosition(GAME_WIDTH / 2, 420);
     this.statusText.setText('What is your name?');
 
-    this.nameForm = this.add.dom(GAME_WIDTH / 2, 480).createFromHTML(`
+    this.nameForm = this.add.dom(GAME_WIDTH / 2, 495).createFromHTML(`
       <div class='name-form'>
         <input type='text' name='playerName' maxlength='16' placeholder='Your name' autocomplete='off'/>
         <button type='button' name='playButton'>PLAY</button>
@@ -72,6 +93,7 @@ export class Lobby extends Phaser.Scene {
       this.registry.set('playerName', name);
       this.nameForm.destroy();
       this.nameForm = null;
+      if (this.logoImage) { this.logoImage.destroy(); this.logoImage = null }
       this.enterGame(name);
     };
 
@@ -86,6 +108,7 @@ export class Lobby extends Phaser.Scene {
   }
 
   enterGame(name) {
+    this.statusText.setPosition(GAME_WIDTH / 2, 120);
     this.statusText.setText('Joining ...');
 
     // A remembered room (rematch) or an invite link joins; otherwise create.
@@ -154,25 +177,24 @@ export class Lobby extends Phaser.Scene {
       this.inviteText = new Text({
         game: this,
         x: GAME_WIDTH / 2,
-        y: 532,
+        y: 400,
         text: 'Invite: ' + url + '  (click to copy)',
-        style: { font: '13px Arial', fill: '#41a4f5' }
+        style: { font: '15px Arial', fill: '#41a4f5' }
       });
       this.inviteText.setInteractive({ useHandCursor: true });
       this.inviteText.on('pointerdown', () => this.copyInviteLink(url));
     }
 
+    // Same styled HTML button as the name form's PLAY button.
     if (this.startText) { this.startText.destroy(); this.startText = null }
     if (countdown === null && isHost) {
-      this.startText = new Text({
-        game: this,
-        x: GAME_WIDTH / 2,
-        y: 556,
-        text: '▶ Start game',
-        style: { font: '20px Arial', fill: '#41a4f5' }
+      this.startText = this.add.dom(GAME_WIDTH / 2, 460).createFromHTML(`
+        <button type='button' name='startButton' class='game-button'>▶ Start game</button>
+      `);
+      this.startText.addListener('click');
+      this.startText.on('click', (event) => {
+        if (event.target.name === 'startButton') { this.socket.emit('host-start') }
       });
-      this.startText.setInteractive({ useHandCursor: true });
-      this.startText.on('pointerdown', () => this.socket.emit('host-start'));
     }
   }
 
@@ -209,8 +231,8 @@ export class Lobby extends Phaser.Scene {
     let centerX = GAME_WIDTH / 2;
 
     this.lineup.push(new Text({
-      game: this, x: centerX, y: 430, text: players.length + ' / ' + maxPlayers + ' players',
-      style: { font: '14px Arial', fill: '#aaaaaa' }
+      game: this, x: centerX, y: 158, text: players.length + ' / ' + maxPlayers + ' players',
+      style: { font: '15px Arial', fill: '#aaaaaa' }
     }));
 
     // One row: self first (yellow name), everyone else after.
@@ -225,16 +247,16 @@ export class Lobby extends Phaser.Scene {
       let x = startX + index * pitch;
       if (player.id === hostId) {
         this.lineup.push(new Text({
-          game: this, x: x, y: 452, text: '★ host',
-          style: { font: '13px Arial', fill: '#41a4f5' }
+          game: this, x: x, y: 218, text: '★ host',
+          style: { font: '14px Arial', fill: '#41a4f5' }
         }));
       }
-      this.lineup.push(this.add.image(x, 484, 'avatarCircle64').setScale(0.75));
+      this.lineup.push(this.add.image(x, 265, 'avatarCircle64'));
       this.lineup.push(new Text({
-        game: this, x: x, y: 518, text: player.name,
+        game: this, x: x, y: 315, text: player.name,
         style: player.id === this.socket.id
-          ? { font: '14px Arial', fill: '#ffff00' }
-          : { font: '13px Arial', fill: '#ffffff' }
+          ? { font: '15px Arial', fill: '#ffff00' }
+          : { font: '14px Arial', fill: '#ffffff' }
       }));
     });
   }
@@ -266,6 +288,7 @@ export class Lobby extends Phaser.Scene {
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
     this.startText = null;
     this.inviteText = null;
+    this.logoImage = null;
     this.events.off('shutdown', this.onShutdown, this);
   }
 }

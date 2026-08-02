@@ -37,7 +37,8 @@ body {
   border-color: #41a4f5;
 }
 
-.name-form button {
+.name-form button,
+.game-button {
   display: block;
   margin: 14px auto 0;
   padding: 10px 40px;
@@ -49,6 +50,11 @@ body {
   cursor: pointer;
 }
 
-.name-form button:hover {
+.game-button {
+  margin: 0;
+}
+
+.name-form button:hover,
+.game-button:hover {
   background: #2b8fe0;
 }
