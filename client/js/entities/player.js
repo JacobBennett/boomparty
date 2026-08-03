@@ -59,21 +59,22 @@ export default class Player extends Phaser.GameObjects.Sprite {
 
   defineKeyboard() {
     this.cursorKeys = this.game.input.keyboard.createCursorKeys();
+    this.wasdKeys = this.game.input.keyboard.addKeys({ up: 'W', left: 'A', down: 'S', right: 'D' });
   }
 
   handleMoves() {
     this.body.setVelocity(0);
     let speed = this.currentSpeed();
 
-    if (this.cursorKeys.left.isDown) {
+    if (this.cursorKeys.left.isDown || this.wasdKeys.left.isDown) {
       this.body.setVelocityX(-speed);
-    } else if (this.cursorKeys.right.isDown) {
+    } else if (this.cursorKeys.right.isDown || this.wasdKeys.right.isDown) {
       this.body.setVelocityX(speed);
     }
 
-    if (this.cursorKeys.up.isDown) {
+    if (this.cursorKeys.up.isDown || this.wasdKeys.up.isDown) {
       this.body.setVelocityY(-speed);
-    } else if (this.cursorKeys.down.isDown) {
+    } else if (this.cursorKeys.down.isDown || this.wasdKeys.down.isDown) {
       this.body.setVelocityY(speed);
     }
   }
