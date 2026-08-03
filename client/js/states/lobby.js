@@ -12,24 +12,45 @@ export class Lobby extends Phaser.Scene {
   create() {
     this.socket = this.registry.get('socketIO');
 
-    // Full-canvas splash backdrop (1408x768 art, cover-scaled: crops 80px per
-    // side, keeps the logo intact). The UI lives below it, over a dark scrim.
-    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'splash').setDisplaySize(1056, 576);
-    this.add.rectangle(GAME_WIDTH / 2, 480, GAME_WIDTH, 192, 0x000000, 0.5);
+    // Animated backdrop: looping muted video, cover-scaled (1280x720 x 0.8,
+    // crops 64px per side). Its own first frame sits underneath as a poster
+    // while the video loads. A full-canvas scrim keeps text readable on top.
+    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'lobbyPoster').setScale(0.8);
+    this.bgVideo = this.add.video(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'lobbyBg');
+    this.bgVideo.setMute(true);
+    // setScale, not setDisplaySize: the video has no texture frame until the
+    // first frame decodes, and setDisplaySize throws on a frameless video.
+    this.bgVideo.setScale(0.8); // 1280x720 -> 1024x576, covers the canvas
+    this.bgVideo.play(true);
+
+    // Browsers may refuse to autoplay even muted video in background tabs
+    // ("video-only background media"). Retry on the first interaction; until
+    // then the static splash underneath keeps the screen intact.
+    let resumeVideo = () => {
+      if (this.bgVideo && !this.bgVideo.isPlaying()) { this.bgVideo.play(true) }
+    };
+    this.input.on('pointerdown', resumeVideo);
+    this.input.keyboard.on('keydown', resumeVideo);
+    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.4);
 
     createCircularAvatar(this, 'avatar64', 'avatar_mask64', 'avatarCircle64', 64);
 
     this.statusText = new Text({
       game: this,
       x: GAME_WIDTH / 2,
-      y: 405,
+      y: 120,
       text: '',
-      style: { font: '24px Arial', fill: '#ffffff', align: 'center' }
+      style: { font: '28px Arial', fill: '#ffffff', align: 'center' }
     });
 
     this.startText = null;
+    this.inviteText = null;
     this.lineup = [];
     this.knownPlayers = 0;
+
+    // Invite links carry the room code as ?room=CODE.
+    let urlCode = (new URLSearchParams(window.location.search).get('room') || '').toUpperCase();
+    this.urlRoomCode = /^[A-Z0-9]{6}$/.test(urlCode) ? urlCode : null;
 
     this.registry.get('Sound').playMusic(this, 'bgMusic02');
 
@@ -48,9 +69,14 @@ export class Lobby extends Phaser.Scene {
   }
 
   showNameForm() {
+    // The logo lives only on the name-entry screen; once a name is submitted
+    // the lobby gets the full canvas height for its UI.
+    this.logoImage = this.add.image(GAME_WIDTH / 2, 215, 'logo').setScale(0.8);
+
+    this.statusText.setPosition(GAME_WIDTH / 2, 420);
     this.statusText.setText('What is your name?');
 
-    this.nameForm = this.add.dom(GAME_WIDTH / 2, 480).createFromHTML(`
+    this.nameForm = this.add.dom(GAME_WIDTH / 2, 495).createFromHTML(`
       <div class='name-form'>
         <input type='text' name='playerName' maxlength='16' placeholder='Your name' autocomplete='off'/>
         <button type='button' name='playButton'>PLAY</button>
@@ -67,6 +93,7 @@ export class Lobby extends Phaser.Scene {
       this.registry.set('playerName', name);
       this.nameForm.destroy();
       this.nameForm = null;
+      if (this.logoImage) { this.logoImage.destroy(); this.logoImage = null }
       this.enterGame(name);
     };
 
@@ -81,16 +108,44 @@ export class Lobby extends Phaser.Scene {
   }
 
   enterGame(name) {
+    this.statusText.setPosition(GAME_WIDTH / 2, 120);
     this.statusText.setText('Joining ...');
-    this.socket.emit('enter-game', { name: name });
+
+    // A remembered room (rematch) or an invite link joins; otherwise create.
+    let code = this.registry.get('roomCode') || this.urlRoomCode;
+    if (code) {
+      this.socket.emit('join-room', { roomCode: code, name: name });
+    } else {
+      this.socket.emit('create-room', { name: name });
+    }
   }
 
-  onLobbyUpdate({ hostId, maxPlayers, players }) {
+  // Keep the room code in the registry (survives the Win -> Lobby rematch
+  // loop) and in the address bar (makes the host's own URL shareable).
+  rememberRoom(roomCode) {
+    if (!roomCode) { return }
+    this.registry.set('roomCode', roomCode);
+    history.replaceState(null, '', '/?room=' + roomCode);
+  }
+
+  onLobbyUpdate({ roomCode, hostId, maxPlayers, players }) {
+    this.rememberRoom(roomCode);
     this.renderLobby(hostId, maxPlayers, players, null);
   }
 
-  onCountdown({ countdown, hostId, maxPlayers, players }) {
+  onCountdown({ roomCode, countdown, hostId, maxPlayers, players }) {
+    this.rememberRoom(roomCode);
     this.renderLobby(hostId, maxPlayers, players, countdown);
+  }
+
+  onRoomNotFound({ roomCode }) {
+    this.registry.remove('roomCode');
+    this.urlRoomCode = null;
+    history.replaceState(null, '', '/');
+    this.statusText.setText('Room ' + roomCode + ' not found — creating a new room ...');
+    this.time.delayedCall(2000, () => {
+      this.socket.emit('create-room', { name: this.registry.get('playerName') });
+    });
   }
 
   renderLobby(hostId, maxPlayers, players, countdown) {
@@ -114,20 +169,59 @@ export class Lobby extends Phaser.Scene {
 
     this.buildLineup(players, hostId, maxPlayers);
 
-    // The Start button is re-derived on every update, so a promoted guest
-    // grows one automatically. Never shown once the countdown is running.
-    if (this.startText) { this.startText.destroy(); this.startText = null }
-    if (countdown === null && isHost) {
-      this.startText = new Text({
+    // The invite link and Start button are re-derived on every update, so a
+    // promoted guest grows a button automatically. Hidden during countdown.
+    if (this.inviteText) { this.inviteText.destroy(); this.inviteText = null }
+    if (countdown === null && joined) {
+      let url = window.location.origin + '/?room=' + this.registry.get('roomCode');
+      this.inviteText = new Text({
         game: this,
         x: GAME_WIDTH / 2,
-        y: 550,
-        text: '▶ Start game',
-        style: { font: '20px Arial', fill: '#41a4f5' }
+        y: 400,
+        text: 'Invite: ' + url + '  (click to copy)',
+        style: { font: '15px Arial', fill: '#41a4f5' }
       });
-      this.startText.setInteractive({ useHandCursor: true });
-      this.startText.on('pointerdown', () => this.socket.emit('host-start'));
+      this.inviteText.setInteractive({ useHandCursor: true });
+      this.inviteText.on('pointerdown', () => this.copyInviteLink(url));
     }
+
+    // Same styled HTML button as the name form's PLAY button.
+    if (this.startText) { this.startText.destroy(); this.startText = null }
+    if (countdown === null && isHost) {
+      this.startText = this.add.dom(GAME_WIDTH / 2, 460).createFromHTML(`
+        <button type='button' name='startButton' class='game-button'>▶ Start game</button>
+      `);
+      this.startText.addListener('click');
+      this.startText.on('click', (event) => {
+        if (event.target.name === 'startButton') { this.socket.emit('host-start') }
+      });
+    }
+  }
+
+  copyInviteLink(url) {
+    let onCopied = () => {
+      if (!this.inviteText) { return }
+      this.inviteText.setText('Copied!');
+      this.time.delayedCall(1500, () => {
+        if (this.inviteText) { this.inviteText.setText('Invite: ' + url + '  (click to copy)') }
+      });
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(onCopied).catch(() => this.fallbackCopy(url, onCopied));
+    } else {
+      this.fallbackCopy(url, onCopied);
+    }
+  }
+
+  // For non-secure origins where the async clipboard API is unavailable.
+  fallbackCopy(url, onCopied) {
+    let area = document.createElement('textarea');
+    area.value = url;
+    document.body.appendChild(area);
+    area.select();
+    try { document.execCommand('copy'); onCopied(); } catch (error) {}
+    area.remove();
   }
 
   buildLineup(players, hostId, maxPlayers) {
@@ -137,8 +231,8 @@ export class Lobby extends Phaser.Scene {
     let centerX = GAME_WIDTH / 2;
 
     this.lineup.push(new Text({
-      game: this, x: centerX, y: 430, text: players.length + ' / ' + maxPlayers + ' players',
-      style: { font: '14px Arial', fill: '#aaaaaa' }
+      game: this, x: centerX, y: 158, text: players.length + ' / ' + maxPlayers + ' players',
+      style: { font: '15px Arial', fill: '#aaaaaa' }
     }));
 
     // One row: self first (yellow name), everyone else after.
@@ -153,16 +247,16 @@ export class Lobby extends Phaser.Scene {
       let x = startX + index * pitch;
       if (player.id === hostId) {
         this.lineup.push(new Text({
-          game: this, x: x, y: 452, text: '★ host',
-          style: { font: '13px Arial', fill: '#41a4f5' }
+          game: this, x: x, y: 218, text: '★ host',
+          style: { font: '14px Arial', fill: '#41a4f5' }
         }));
       }
-      this.lineup.push(this.add.image(x, 484, 'avatarCircle64').setScale(0.75));
+      this.lineup.push(this.add.image(x, 265, 'avatarCircle64'));
       this.lineup.push(new Text({
-        game: this, x: x, y: 518, text: player.name,
+        game: this, x: x, y: 315, text: player.name,
         style: player.id === this.socket.id
-          ? { font: '14px Arial', fill: '#ffff00' }
-          : { font: '13px Arial', fill: '#ffffff' }
+          ? { font: '15px Arial', fill: '#ffff00' }
+          : { font: '14px Arial', fill: '#ffffff' }
       }));
     });
   }
@@ -171,7 +265,8 @@ export class Lobby extends Phaser.Scene {
     this.scene.start('Play', { game: game, observer: false });
   }
 
-  onObserveGame({ game }) {
+  onObserveGame({ roomCode, game }) {
+    this.rememberRoom(roomCode);
     this.scene.start('Play', { game: game, observer: true });
   }
 
@@ -180,6 +275,7 @@ export class Lobby extends Phaser.Scene {
     this.socket.on('start-game-countdown', this.boundCountdown = this.onCountdown.bind(this));
     this.socket.on('start-game',           this.boundStart = this.onStartGame.bind(this));
     this.socket.on('observe-game',         this.boundObserve = this.onObserveGame.bind(this));
+    this.socket.on('room-not-found',       this.boundNotFound = this.onRoomNotFound.bind(this));
   }
 
   onShutdown() {
@@ -187,9 +283,12 @@ export class Lobby extends Phaser.Scene {
     this.socket.off('start-game-countdown', this.boundCountdown);
     this.socket.off('start-game',           this.boundStart);
     this.socket.off('observe-game',         this.boundObserve);
+    this.socket.off('room-not-found',       this.boundNotFound);
 
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
     this.startText = null;
+    this.inviteText = null;
+    this.logoImage = null;
     this.events.off('shutdown', this.onShutdown, this);
   }
 }
