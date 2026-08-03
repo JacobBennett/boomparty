@@ -1,3 +1,8 @@
+// Temporarily muted: current tracks/effects are placeholders awaiting
+// replacement. Restore to taste (music was 0.5, effects 0.8).
+const MUSIC_VOLUME = 0;
+const SOUND_VOLUME = 0;
+
 export class Sound {
   constructor() {
     this._soundOn = true;
@@ -29,7 +34,7 @@ export class Sound {
       scene.registry.set('Sound', this);
     }
     if (this.musicOn === true && this.bgMusicPlaying === false) {
-      scene.sound.add(soundId, { volume: 0.5, loop: true }).play();
+      scene.sound.add(soundId, { volume: MUSIC_VOLUME, loop: true }).play();
       this.bgMusicPlaying = true;
       this._currentMusic=soundId;
       scene.registry.set('Sound', this);
@@ -43,7 +48,7 @@ export class Sound {
       scene.registry.set('Sound', this);
     }
     if (this.soundOn === true && this.bgSoundPlaying === false) {
-      scene.sound.add(soundId, { volume: 0.8, loop: false }).play();
+      scene.sound.add(soundId, { volume: SOUND_VOLUME, loop: false }).play();
       this.bgSoundPlaying = true;
       this._currentSound=soundId;
       scene.registry.set('Sound', this);

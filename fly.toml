@@ -2,6 +2,9 @@
 # One always-on machine: rooms live in process memory, so never scale this
 # horizontally, and never let the machine auto-stop (it would wipe live rooms).
 
+app = "boomparty"
+primary_region = "ord"
+
 [build]
   # Uses the repo Dockerfile.
 
