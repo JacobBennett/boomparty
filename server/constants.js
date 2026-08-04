@@ -18,7 +18,8 @@ const COUNTDOWN_SECONDS = 3;
 const ROUND_TIME_MS = 3 * 60 * 1000;
 const WIN_DELAY_MS = 3000;
 
-const MAPS = ['hot_map', 'cold_map'];
+// Pinned to cold_map for now; add 'hot_map' back to restore random selection.
+const MAPS = ['cold_map'];
 
 const DEFAULT_AVATAR = '/images/game/avatar64.png';
 
