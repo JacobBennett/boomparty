@@ -56,11 +56,14 @@ export class Lobby extends Phaser.Scene {
 
     this.setEventHandlers();
 
-    // The name lives only in the Phaser registry: a page reload shows the form
-    // again and (server-side) hands host duties to the next-oldest player.
+    // Registry name = same-session rematch (rejoin instantly). Stored name =
+    // returning visitor (greet them). Neither = first visit (ask).
     let playerName = this.registry.get('playerName');
+    let storedName = this.loadStoredName();
     if (playerName) {
       this.enterGame(playerName);
+    } else if (storedName) {
+      this.showWelcomeBack(storedName);
     } else {
       this.showNameForm();
     }
@@ -68,37 +71,78 @@ export class Lobby extends Phaser.Scene {
     this.events.on('shutdown', this.onShutdown, this);
   }
 
-  showNameForm() {
-    // The logo lives only on the name-entry screen; once a name is submitted
-    // the lobby gets the full canvas height for its UI.
-    this.logoImage = this.add.image(GAME_WIDTH / 2, 215, 'logo').setScale(0.8);
+  loadStoredName() {
+    try {
+      return (localStorage.getItem('boomparty.playerName') || '').trim() || null
+    } catch (error) {
+      return null
+    }
+  }
 
+  saveStoredName(name) {
+    try {
+      localStorage.setItem('boomparty.playerName', name);
+    } catch (error) { /* private browsing etc. — just don't persist */ }
+  }
+
+  // Shows the logo (name-entry screens only) and swaps in a DOM fragment.
+  showEntryScreen(statusMessage, html) {
+    if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
+    if (!this.logoImage) {
+      this.logoImage = this.add.image(GAME_WIDTH / 2, 215, 'logo').setScale(0.8);
+    }
     this.statusText.setPosition(GAME_WIDTH / 2, 420);
-    this.statusText.setText('What is your name?');
+    this.statusText.setText(statusMessage);
+    this.nameForm = this.add.dom(GAME_WIDTH / 2, 495).createFromHTML(html);
+    return this.nameForm;
+  }
 
-    this.nameForm = this.add.dom(GAME_WIDTH / 2, 495).createFromHTML(`
+  leaveEntryScreen(name) {
+    this.registry.set('playerName', name);
+    if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
+    if (this.logoImage) { this.logoImage.destroy(); this.logoImage = null }
+    this.enterGame(name);
+  }
+
+  showWelcomeBack(name) {
+    let safeName = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let form = this.showEntryScreen('Welcome back, ' + name + '!', `
+      <div class='name-form'>
+        <button type='button' name='playButton' class='game-button'>PLAY</button>
+        <a class='change-name-link' name='changeName'>Not ${safeName}? Change name</a>
+      </div>
+    `);
+
+    form.addListener('click');
+    form.on('click', (event) => {
+      if (event.target.name === 'playButton') { this.leaveEntryScreen(name) }
+      if (event.target.name === 'changeName') { this.showNameForm(name) }
+    });
+  }
+
+  showNameForm(prefill) {
+    let form = this.showEntryScreen('What is your name?', `
       <div class='name-form'>
         <input type='text' name='playerName' maxlength='16' placeholder='Your name' autocomplete='off'/>
         <button type='button' name='playButton'>PLAY</button>
       </div>
     `);
 
-    let input = this.nameForm.getChildByName('playerName');
+    let input = form.getChildByName('playerName');
+    if (prefill) { input.value = prefill; }
     input.focus();
+    if (prefill) { input.select(); }
 
     let submit = () => {
       let name = input.value.trim();
       if (!name) { input.focus(); return }
 
-      this.registry.set('playerName', name);
-      this.nameForm.destroy();
-      this.nameForm = null;
-      if (this.logoImage) { this.logoImage.destroy(); this.logoImage = null }
-      this.enterGame(name);
+      this.saveStoredName(name);
+      this.leaveEntryScreen(name);
     };
 
-    this.nameForm.addListener('click');
-    this.nameForm.on('click', (event) => {
+    form.addListener('click');
+    form.on('click', (event) => {
       if (event.target.name === 'playButton') { submit() }
     });
 

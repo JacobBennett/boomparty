@@ -58,3 +58,16 @@ body {
 .game-button:hover {
   background: #2b8fe0;
 }
+
+.change-name-link {
+  display: block;
+  margin-top: 12px;
+  text-align: center;
+  font: 13px Arial, sans-serif;
+  color: #41a4f5;
+  cursor: pointer;
+}
+
+.change-name-link:hover {
+  text-decoration: underline;
+}
