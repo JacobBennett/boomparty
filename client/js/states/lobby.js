@@ -44,7 +44,6 @@ export class Lobby extends Phaser.Scene {
     });
 
     this.startText = null;
-    this.inviteText = null;
     this.lineup = [];
     this.knownPlayers = 0;
 
@@ -213,42 +212,35 @@ export class Lobby extends Phaser.Scene {
 
     this.buildLineup(players, hostId, maxPlayers);
 
-    // The invite link and Start button are re-derived on every update, so a
-    // promoted guest grows a button automatically. Hidden during countdown.
-    if (this.inviteText) { this.inviteText.destroy(); this.inviteText = null }
+    // The button row is re-derived on every update, so a promoted guest grows
+    // a Start button automatically. Hidden during countdown. Everyone who has
+    // joined gets an Invite button; only the host also gets Start.
+    if (this.startText) { this.startText.destroy(); this.startText = null }
     if (countdown === null && joined) {
       let url = window.location.origin + '/?room=' + this.registry.get('roomCode');
-      this.inviteText = new Text({
-        game: this,
-        x: GAME_WIDTH / 2,
-        y: 400,
-        text: 'Invite: ' + url + '  (click to copy)',
-        style: { font: '15px Arial', fill: '#41a4f5' }
-      });
-      this.inviteText.setInteractive({ useHandCursor: true });
-      this.inviteText.on('pointerdown', () => this.copyInviteLink(url));
-    }
-
-    // Same styled HTML button as the name form's PLAY button.
-    if (this.startText) { this.startText.destroy(); this.startText = null }
-    if (countdown === null && isHost) {
       this.startText = this.add.dom(GAME_WIDTH / 2, 460).createFromHTML(`
-        <button type='button' name='startButton' class='game-button'>▶ Start game</button>
+        <div class='lobby-buttons'>
+          <button type='button' name='inviteButton' class='game-button'>Invite</button>
+          ${isHost ? "<button type='button' name='startButton' class='game-button'>▶ Start game</button>" : ''}
+        </div>
       `);
       this.startText.addListener('click');
       this.startText.on('click', (event) => {
         if (event.target.name === 'startButton') { this.socket.emit('host-start') }
+        if (event.target.name === 'inviteButton') { this.copyInviteLink(url, event.target) }
       });
     }
   }
 
-  copyInviteLink(url) {
+  copyInviteLink(url, button) {
     let onCopied = () => {
-      if (!this.inviteText) { return }
-      this.inviteText.setText('Copied!');
-      this.time.delayedCall(1500, () => {
-        if (this.inviteText) { this.inviteText.setText('Invite: ' + url + '  (click to copy)') }
-      });
+      button.textContent = 'Copied URL';
+      // Wall-clock timeout, not the Phaser clock: the game loop is throttled
+      // in background tabs, but this label swap should always revert on time.
+      setTimeout(() => {
+        // The row may have been rebuilt by a lobby update; only touch a live button.
+        if (button.isConnected) { button.textContent = 'Invite' }
+      }, 3000);
     };
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -331,7 +323,6 @@ export class Lobby extends Phaser.Scene {
 
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
     this.startText = null;
-    this.inviteText = null;
     this.logoImage = null;
     this.events.off('shutdown', this.onShutdown, this);
   }

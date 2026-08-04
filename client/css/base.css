@@ -54,6 +54,12 @@ body {
   margin: 0;
 }
 
+.lobby-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
 .name-form button:hover,
 .game-button:hover {
   background: #2b8fe0;
