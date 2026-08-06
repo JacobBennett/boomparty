@@ -27,6 +27,9 @@ var config = {
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
+    // Never scale past native resolution; smaller windows still shrink to fit.
+    maxWidth: GAME_WIDTH,
+    maxHeight: GAME_HEIGHT,
   },
   scene: [Boot, Preload, Lobby, Play, Win],
   physics: {
@@ -38,6 +41,14 @@ var config = {
 };
 
 var game = new Phaser.Game(config);
+
+// Phaser's own resize pass measures the parent only after scaling, so a single
+// resize event (device rotation, programmatic resize) lands one frame behind.
+// Re-measure first, then refresh, so the canvas settles immediately.
+window.addEventListener('resize', function () {
+  game.scale.getParentBounds();
+  game.scale.refresh();
+});
 
 // Handy for debugging from the browser console.
 window.game = game;
