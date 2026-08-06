@@ -51,7 +51,8 @@ export class Lobby extends Phaser.Scene {
     let urlCode = (new URLSearchParams(window.location.search).get('room') || '').toUpperCase();
     this.urlRoomCode = /^[A-Z0-9]{6}$/.test(urlCode) ? urlCode : null;
 
-    this.registry.get('Sound').playMusic(this, 'bgMusic02');
+    this.musicFading = false;
+    this.registry.get('Sound').playMusic(this, 'bgMusicLobby');
 
     this.setEventHandlers();
 
@@ -84,12 +85,10 @@ export class Lobby extends Phaser.Scene {
     } catch (error) { /* private browsing etc. — just don't persist */ }
   }
 
-  // Shows the logo (name-entry screens only) and swaps in a DOM fragment.
+  // Swaps in a name-entry DOM fragment; the video's baked-in branding fills
+  // the upper half of the screen, so no logo overlay is drawn.
   showEntryScreen(statusMessage, html) {
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
-    if (!this.logoImage) {
-      this.logoImage = this.add.image(GAME_WIDTH / 2, 215, 'logo').setScale(0.8);
-    }
     this.statusText.setPosition(GAME_WIDTH / 2, 420);
     this.statusText.setText(statusMessage);
     this.nameForm = this.add.dom(GAME_WIDTH / 2, 495).createFromHTML(html);
@@ -99,7 +98,6 @@ export class Lobby extends Phaser.Scene {
   leaveEntryScreen(name) {
     this.registry.set('playerName', name);
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
-    if (this.logoImage) { this.logoImage.destroy(); this.logoImage = null }
     this.enterGame(name);
   }
 
@@ -178,6 +176,13 @@ export class Lobby extends Phaser.Scene {
 
   onCountdown({ roomCode, countdown, hostId, maxPlayers, players }) {
     this.rememberRoom(roomCode);
+
+    // Fade the lobby music across the countdown so it ends as the game starts.
+    if (!this.musicFading) {
+      this.musicFading = true;
+      this.registry.get('Sound').fadeOutMusic(this, 2500);
+    }
+
     this.renderLobby(hostId, maxPlayers, players, countdown);
   }
 
@@ -323,7 +328,7 @@ export class Lobby extends Phaser.Scene {
 
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
     this.startText = null;
-    this.logoImage = null;
+    this.registry.get('Sound').stopFadedMusic();
     this.events.off('shutdown', this.onShutdown, this);
   }
 }
