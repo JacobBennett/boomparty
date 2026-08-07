@@ -280,8 +280,8 @@ export class Lobby extends Phaser.Scene {
 
     let playerRows = players.map(player => {
       let classes = 'player-row' + (player.id === this.socket.id ? ' me' : '');
-      let crown = player.id === hostId ? '👑 ' : '';
-      return `<div class='${classes}'>${crown}${escape(player.name)}</div>`;
+      let crown = player.id === hostId ? ' 👑' : '';
+      return `<div class='${classes}'>${escape(player.name)}${crown}</div>`;
     }).join('');
 
     let middlePanel;
@@ -302,7 +302,7 @@ export class Lobby extends Phaser.Scene {
       middlePanel = `<div class='waiting-note'>Game is full — you will watch this round</div>`;
     }
 
-    this.lobbyModal = this.add.dom(GAME_WIDTH / 2, 330).createFromHTML(`
+    this.lobbyModal = this.add.dom(GAME_WIDTH / 2, GAME_HEIGHT / 2).createFromHTML(`
       <div class='lobby-modal'>
         <h2>Party Lobby</h2>
         <div class='player-count'>${players.length} / ${maxPlayers} players</div>
