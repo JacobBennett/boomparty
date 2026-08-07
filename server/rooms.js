@@ -25,7 +25,12 @@ const Rooms = {
       countdownTimer: null,
       countdownLeft: 0,
       roundTimer: null,
-      bombTimers: new Map() // bomb.id -> fuse timer
+      bombTimers: new Map(), // bomb.id -> fuse timer
+      settings: null,        // { rounds, roundTime } chosen by the host at start
+      currentRound: 0,
+      scores: {},            // socket.id -> { name, wins }; rows survive disconnects
+      intermissionTimer: null,
+      intermissionEndsAt: 0
     };
     rooms.set(room.code, room);
     return room;
@@ -38,6 +43,7 @@ const Rooms = {
   clearRoomTimers: function(room) {
     if (room.countdownTimer) { clearInterval(room.countdownTimer); room.countdownTimer = null }
     if (room.roundTimer) { clearTimeout(room.roundTimer); room.roundTimer = null }
+    if (room.intermissionTimer) { clearTimeout(room.intermissionTimer); room.intermissionTimer = null }
     for (let timer of room.bombTimers.values()) { clearTimeout(timer) }
     room.bombTimers.clear();
   },

@@ -19,7 +19,8 @@ class Play extends Phaser.Scene {
     super('Play');
   }
 
-  init({ game, observer }) {
+  init({ game, observer, match }) {
+    this.match = match || null;
     this.socket = this.registry.get('socketIO');
     this.currentGame = game;
     this.observer = observer;
@@ -77,6 +78,15 @@ class Play extends Phaser.Scene {
       font: '14px Arial',
       fill: '#ffffff'
     }).setDepth(10);
+
+    if (this.match) {
+      this.add.text(plateX - 12, 2 + 7, 'Round ' + this.match.currentRound + ' / ' + this.match.totalRounds, {
+        font: '14px Arial',
+        fill: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3
+      }).setOrigin(1, 0).setDepth(10);
+    }
 
     this.syncRoundTimer();
   }
@@ -222,8 +232,8 @@ class Play extends Phaser.Scene {
       'spoil-picked-up':         this.onSpoilPickedUp.bind(this),
       'bones-show':              this.onBonesShow.bind(this),
       'player-left':             this.onPlayerLeft.bind(this),
-      'player-won':              this.onPlayerWon.bind(this),
-      'timer-ended':             this.onTimerEnded.bind(this)
+      'round-ended':             this.onRoundEnded.bind(this),
+      'match-ended':             this.onMatchEnded.bind(this)
     };
 
     for (let [event, handler] of Object.entries(this.handlers)) {
@@ -343,12 +353,15 @@ class Play extends Phaser.Scene {
     }
   }
 
-  onPlayerWon({ name }) {
-    this.scene.start('Win', { name: name });
+  // Navigation rides these (not player-won/timer-ended): the server emits the
+  // round outcome in the same batch, and Win's handlers only exist after its
+  // create() runs — navigating here guarantees the payload arrives with us.
+  onRoundEnded(payload) {
+    this.scene.start('Win', { mode: 'round', ...payload });
   }
 
-  onTimerEnded() {
-    this.scene.start('Win', { timeUp: true });
+  onMatchEnded(payload) {
+    this.scene.start('Win', { mode: 'match', ...payload });
   }
 }
 

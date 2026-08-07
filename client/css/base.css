@@ -60,6 +60,74 @@ body {
   justify-content: center;
 }
 
+.lobby-modal {
+  width: 380px;
+  padding: 18px 22px;
+  background: #1b1b1b;
+  border: 1px solid #444;
+  border-radius: 10px;
+  font: 14px Arial, sans-serif;
+  color: #eee;
+  box-shadow: 4px 4px 5px rgba(0,0,0,0.5);
+}
+
+.lobby-modal h2 {
+  font: bold 22px Arial, sans-serif;
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.lobby-modal .player-count {
+  text-align: center;
+  color: #aaa;
+  margin-bottom: 10px;
+}
+
+.lobby-panel {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.lobby-panel h3 {
+  font: bold 14px Arial, sans-serif;
+  margin-bottom: 8px;
+}
+
+.player-row {
+  padding: 3px 0;
+}
+
+.player-row.me {
+  color: #ffff00;
+}
+
+.host-settings label {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.host-settings input[type=range] {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  accent-color: #41a4f5;
+}
+
+.slider-value {
+  float: right;
+  color: #41a4f5;
+  font-weight: bold;
+}
+
+.waiting-note {
+  text-align: center;
+  color: #aaa;
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
 .name-form button:hover,
 .game-button:hover {
   background: #2b8fe0;

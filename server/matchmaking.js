@@ -1,6 +1,10 @@
 const Rooms = require('./rooms');
 const { Game } = require('./entity/game');
-const { COUNTDOWN_SECONDS, ROUND_TIME_MS, WIN_DELAY_MS } = require('./constants');
+const {
+  COUNTDOWN_SECONDS, WIN_DELAY_MS, INTERMISSION_SECONDS,
+  ROUNDS_MIN, ROUNDS_MAX, DEFAULT_ROUNDS,
+  ROUND_TIME_MIN_S, ROUND_TIME_MAX_S, DEFAULT_ROUND_TIME_S
+} = require('./constants');
 
 // Room-based matchmaking: every game lives in a room with a shareable code.
 // The first player creates the room and hosts; everyone else joins by code
@@ -36,6 +40,30 @@ function lobbyPayload(room) {
 
 function roomOf(socket) {
   return socket.data.roomCode ? Rooms.getRoom(socket.data.roomCode) : null
+}
+
+function clampSetting(value, min, max, fallback) {
+  return Number.isInteger(value) ? Math.min(max, Math.max(min, value)) : fallback
+}
+
+function scoresPayload(room) {
+  return Object.entries(room.scores).map(([id, row]) => ({ id: id, name: row.name, wins: row.wins }))
+}
+
+function matchPayload(room) {
+  return {
+    currentRound: room.currentRound,
+    totalRounds: room.settings.rounds,
+    scores: scoresPayload(room)
+  }
+}
+
+function ensureScoreRows(room) {
+  for (let player of Object.values(room.game.players)) {
+    if (!room.scores[player.id]) {
+      room.scores[player.id] = { name: player.name, wins: 0 };
+    }
+  }
 }
 
 const Matchmaking = {
@@ -89,7 +117,21 @@ const Matchmaking = {
     if (game.state === 'running') {
       log(socket, 'join-room', 'Room ' + room.code + ' in progress, joining as observer');
       socket.data.role = 'observer';
-      socket.emit('observe-game', { roomCode: room.code, game: game.payload({ forObserver: true }) });
+      socket.emit('observe-game', { roomCode: room.code, game: game.payload({ forObserver: true }), match: room.settings ? matchPayload(room) : null });
+      return
+    }
+
+    if (game.state === 'intermission') {
+      // Between rounds: wait out the window; startNextRound seats them if a
+      // spawn is free, otherwise they observe the next round.
+      log(socket, 'join-room', 'Room ' + room.code + ' between rounds, waiting for the next one');
+      socket.data.role = 'observer';
+      socket.emit('wait-next-round', {
+        roomCode: room.code,
+        currentRound: room.currentRound,
+        totalRounds: room.settings.rounds,
+        nextRoundInMs: Math.max(0, room.intermissionEndsAt - Date.now())
+      });
       return
     }
 
@@ -114,12 +156,19 @@ const Matchmaking = {
     }
   },
 
-  onHostStart: function(socket) {
+  onHostStart: function(socket, { rounds, roundTime } = {}) {
     let room = roomOf(socket);
     if (!room || room.game.state !== 'pending') { return }
     if (socket.id !== room.game.hostId) { return }
 
-    log(socket, 'host-start', 'Host starts the game in room ' + room.code);
+    room.settings = {
+      rounds: clampSetting(rounds, ROUNDS_MIN, ROUNDS_MAX, DEFAULT_ROUNDS),
+      roundTime: clampSetting(roundTime, ROUND_TIME_MIN_S, ROUND_TIME_MAX_S, DEFAULT_ROUND_TIME_S)
+    };
+    room.currentRound = 0;
+    room.scores = {};
+
+    log(socket, 'host-start', 'Host starts a ' + room.settings.rounds + '-round match (' + room.settings.roundTime + 's rounds) in room ' + room.code);
     Matchmaking.startCountdown(room);
   },
 
@@ -163,19 +212,23 @@ const Matchmaking = {
     });
   },
 
+  // Starts one round of the current match.
   startGame: function(room) {
     let game = room.game;
+    let roundMs = room.settings.roundTime * 1000;
+    room.currentRound += 1;
     game.state = 'running';
-    game.round_ends_at = Date.now() + ROUND_TIME_MS;
-    console.log('##>start-game [Room:' + room.code + '] Game starts with ' + game.playersCount() + ' player(s)');
+    game.round_ends_at = Date.now() + roundMs;
+    ensureScoreRows(room);
+    console.log('##>start-game [Room:' + room.code + '] Round ' + room.currentRound + '/' + room.settings.rounds + ' starts with ' + game.playersCount() + ' player(s)');
 
     io.sockets.in(room.code).fetchSockets().then(function(sockets) {
       for (let member of sockets) {
         if (member.data.role === 'player' && game.players[member.id]) {
-          member.emit('start-game', { game: game.payload() });
+          member.emit('start-game', { game: game.payload(), match: matchPayload(room) });
         } else {
           member.data.role = 'observer';
-          member.emit('observe-game', { roomCode: room.code, game: game.payload({ forObserver: true }) });
+          member.emit('observe-game', { roomCode: room.code, game: game.payload({ forObserver: true }), match: matchPayload(room) });
         }
       }
     });
@@ -185,8 +238,8 @@ const Matchmaking = {
 
       console.log('##>timer-ended [Room:' + room.code + '] Round time is up');
       io.sockets.in(room.code).emit('timer-ended');
-      Matchmaking.finishRound(room);
-    }, ROUND_TIME_MS);
+      Matchmaking.endRound(room, null, { timeUp: true });
+    }, roundMs);
   },
 
   onPositionUpdate: function(socket, { x, y }) {
@@ -305,6 +358,14 @@ const Matchmaking = {
       io.sockets.in(room.code).emit('player-left', { playerId: socket.id, playerName: player.name });
 
       if (wasAlive) { Matchmaking.checkWin(room) }
+    } else if (player && game.state === 'intermission') {
+      // The old round's game is dead; just drop them so the next-round seating
+      // skips them. startNextRound re-derives the host from actually-seated players.
+      delete game.players[socket.id];
+      console.log('==>#leave# [User:' + socket.id + '] Player "' + player.name + '" left room ' + room.code + ' between rounds');
+      if (socket.id === game.hostId) {
+        Matchmaking.promoteHost(game);
+      }
     } else if (player) {
       // pending / countdown
       game.removePlayer(socket.id);
@@ -334,7 +395,8 @@ const Matchmaking = {
     }
 
     // Pending game emptied but observers are still waiting: give them the room.
-    if (game.playersCount() === 0 && game.state !== 'running') {
+    // (Not during intermission — the intermission timer will seat them itself.)
+    if (game.playersCount() === 0 && (game.state === 'pending' || game.state === 'countdown')) {
       Matchmaking.resetRoom(room);
       Matchmaking.seatObservers(room);
     }
@@ -368,19 +430,110 @@ const Matchmaking = {
     setTimeout(function() {
       if (Rooms.getRoom(room.code) !== room || room.game !== game) { return }
 
-      let label = winner ? 'Player "' + winner.name + '" won' : 'Everybody died';
+      let label = winner ? 'Player "' + winner.name + '" won round ' + room.currentRound : 'Everybody died in round ' + room.currentRound;
       console.log('##>player-won [Room:' + room.code + '] ' + label);
+
+      if (winner) {
+        if (!room.scores[winner.id]) { room.scores[winner.id] = { name: winner.name, wins: 0 } }
+        room.scores[winner.id].wins += 1;
+      }
 
       io.sockets.in(room.code).emit('player-won', {
         playerId: winner ? winner.id : null,
         name: winner ? winner.name : null
       });
 
-      Matchmaking.finishRound(room);
+      Matchmaking.endRound(room, winner, { timeUp: false });
     }, WIN_DELAY_MS);
   },
 
-  finishRound: function(room) {
+  endRound: function(room, winner, { timeUp }) {
+    if (room.currentRound < room.settings.rounds) {
+      Matchmaking.beginIntermission(room, winner, { timeUp: timeUp });
+    } else {
+      Matchmaking.endMatch(room, winner, { timeUp: timeUp });
+    }
+  },
+
+  beginIntermission: function(room, winner, { timeUp }) {
+    let game = room.game;
+    game.state = 'intermission';
+
+    // Round-scoped timers only; the intermission timer below must survive.
+    if (room.roundTimer) { clearTimeout(room.roundTimer); room.roundTimer = null }
+    for (let timer of room.bombTimers.values()) { clearTimeout(timer) }
+    room.bombTimers.clear();
+
+    io.sockets.in(room.code).emit('round-ended', {
+      winnerName: winner ? winner.name : null,
+      timeUp: timeUp,
+      scores: scoresPayload(room),
+      currentRound: room.currentRound,
+      totalRounds: room.settings.rounds,
+      nextRoundIn: INTERMISSION_SECONDS
+    });
+
+    room.intermissionEndsAt = Date.now() + INTERMISSION_SECONDS * 1000;
+    room.intermissionTimer = setTimeout(function() {
+      room.intermissionTimer = null;
+      if (Rooms.getRoom(room.code) !== room || room.game !== game) { return }
+      Matchmaking.startNextRound(room);
+    }, INTERMISSION_SECONDS * 1000);
+  },
+
+  // Re-seats everyone still connected into a fresh Game — clients never
+  // re-emit join-room between rounds; they just receive the next start-game.
+  startNextRound: function(room) {
+    let oldGame = room.game;
+    let newGame = new Game();
+
+    io.sockets.in(room.code).fetchSockets().then(function(sockets) {
+      if (Rooms.getRoom(room.code) !== room || room.game !== oldGame) { return }
+
+      let connected = new Map(sockets.map(member => [member.id, member]));
+
+      // Previous players first (in their original join order), then waiting
+      // observers, until the map runs out of spawns.
+      let candidates = [];
+      for (let id of Object.keys(oldGame.players)) {
+        if (connected.has(id)) { candidates.push(connected.get(id)) }
+      }
+      for (let member of sockets) {
+        if (!oldGame.players[member.id]) { candidates.push(member) }
+      }
+
+      for (let member of candidates) {
+        if (newGame.isFull()) { member.data.role = 'observer'; continue }
+        member.data.role = 'player';
+        newGame.addPlayer(member.id, member.data.playerName || 'Anonymous');
+      }
+
+      if (oldGame.hostId && newGame.players[oldGame.hostId]) {
+        newGame.hostId = oldGame.hostId;
+      } else {
+        newGame.hostId = Object.keys(newGame.players)[0] || null;
+      }
+
+      room.game = newGame;
+      Matchmaking.startGame(room);
+    });
+  },
+
+  endMatch: function(room, lastWinner, { timeUp }) {
+    let standings = scoresPayload(room).sort((a, b) => b.wins - a.wins);
+    let maxWins = standings.length ? standings[0].wins : 0;
+    let tie = standings.filter(row => row.wins === maxWins).length !== 1;
+
+    console.log('##>match-ended [Room:' + room.code + '] ' + (tie ? 'Match tied' : 'Player "' + standings[0].name + '" wins the match'));
+
+    io.sockets.in(room.code).emit('match-ended', {
+      standings: standings,
+      matchWinnerName: tie ? null : standings[0].name,
+      tie: tie,
+      lastWinnerName: lastWinner ? lastWinner.name : null,
+      timeUp: timeUp
+    });
+
     room.game.state = 'finished';
     Matchmaking.resetRoom(room);
   },
@@ -388,6 +541,10 @@ const Matchmaking = {
   resetRoom: function(room) {
     Rooms.clearRoomTimers(room);
     room.game = new Game();
+    room.settings = null;
+    room.currentRound = 0;
+    room.scores = {};
+    room.intermissionEndsAt = 0;
     console.log('==>#room# Room ' + room.code + ' reset for a rematch');
   },
 
