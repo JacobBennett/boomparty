@@ -1,4 +1,4 @@
-import { Text, createCircularAvatar } from '../helpers/elements.js';
+import { Text } from '../helpers/elements.js';
 import { GAME_WIDTH, GAME_HEIGHT } from '../utils/constants.js';
 
 // Host/guest lobby: the first player to enter hosts the room, watches the
@@ -31,21 +31,25 @@ export class Lobby extends Phaser.Scene {
     };
     this.input.on('pointerdown', resumeVideo);
     this.input.keyboard.on('keydown', resumeVideo);
-    this.add.rectangle(GAME_WIDTH / 2, GAME_HEIGHT / 2, GAME_WIDTH, GAME_HEIGHT, 0x000000, 0.4);
 
-    createCircularAvatar(this, 'avatar64', 'avatar_mask64', 'avatarCircle64', 64);
+    // Bottom gradient scrim: transparent at its top, dark at the screen edge,
+    // so the UI text reads clearly while the artwork above stays undimmed.
+    this.createScrimTexture();
+    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT, 'lobbyScrim').setOrigin(0.5, 1);
+
+    this.createMuteButton();
 
     this.statusText = new Text({
       game: this,
       x: GAME_WIDTH / 2,
-      y: 120,
+      y: 396,
       text: '',
-      style: { font: '28px Arial', fill: '#ffffff', align: 'center' }
+      style: { font: '24px Arial', fill: '#ffffff', align: 'center' }
     });
 
-    this.startText = null;
-    this.lineup = [];
+    this.lobbyModal = null;
     this.knownPlayers = 0;
+    this.hostSettings = { rounds: 3, roundTime: 180 };
 
     // Invite links carry the room code as ?room=CODE.
     let urlCode = (new URLSearchParams(window.location.search).get('room') || '').toUpperCase();
@@ -69,6 +73,59 @@ export class Lobby extends Phaser.Scene {
     }
 
     this.events.on('shutdown', this.onShutdown, this);
+  }
+
+  createScrimTexture() {
+    if (this.textures.exists('lobbyScrim')) { return }
+
+    let height = GAME_HEIGHT / 2;
+    let canvasTexture = this.textures.createCanvas('lobbyScrim', GAME_WIDTH, height);
+    let ctx = canvasTexture.getContext();
+
+    let gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0.75)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, GAME_WIDTH, height);
+
+    canvasTexture.refresh();
+  }
+
+  createMuteButton() {
+    // Track mute state ourselves: Phaser's sound.mute getter reads the Web
+    // Audio gain node, which lags behind the setter's scheduled change.
+    this.isMuted = this.loadStoredMute();
+    this.sound.mute = this.isMuted;
+
+    this.muteButton = new Text({
+      game: this,
+      x: GAME_WIDTH - 28,
+      y: 28,
+      text: this.isMuted ? '🔇' : '🔊',
+      style: { font: '22px Arial' }
+    });
+    this.muteButton.setDepth(20);
+    this.muteButton.setInteractive({ useHandCursor: true });
+    this.muteButton.on('pointerdown', () => {
+      this.isMuted = !this.isMuted;
+      this.sound.mute = this.isMuted;
+      this.muteButton.setText(this.isMuted ? '🔇' : '🔊');
+      this.saveStoredMute(this.isMuted);
+    });
+  }
+
+  loadStoredMute() {
+    try {
+      return localStorage.getItem('boomparty.muted') === 'true'
+    } catch (error) {
+      return false
+    }
+  }
+
+  saveStoredMute(muted) {
+    try {
+      localStorage.setItem('boomparty.muted', muted ? 'true' : 'false');
+    } catch (error) { /* private browsing etc. — just don't persist */ }
   }
 
   loadStoredName() {
@@ -149,7 +206,7 @@ export class Lobby extends Phaser.Scene {
   }
 
   enterGame(name) {
-    this.statusText.setPosition(GAME_WIDTH / 2, 120);
+    this.statusText.setPosition(GAME_WIDTH / 2, 396);
     this.statusText.setText('Joining ...');
 
     // A remembered room (rematch) or an invite link joins; otherwise create.
@@ -200,41 +257,95 @@ export class Lobby extends Phaser.Scene {
     let isHost = hostId === this.socket.id;
     let joined = players.some(player => player.id === this.socket.id);
 
-    if (countdown !== null) {
-      this.statusText.setText('Get ready, game starts in ' + countdown);
-    } else if (isHost) {
-      this.statusText.setText('You are the host — start when ready');
-    } else if (joined) {
-      this.statusText.setText('Waiting for the host to start the game ...');
-    } else {
-      this.statusText.setText('Game is full — you will watch this round');
-    }
-
     if (players.length > this.knownPlayers && this.knownPlayers > 0) {
       this.registry.get('Sound').playSound(this, 'FxNewUser01');
     }
     this.knownPlayers = players.length;
 
-    this.buildLineup(players, hostId, maxPlayers);
+    if (this.lobbyModal) { this.lobbyModal.destroy(); this.lobbyModal = null }
 
-    // The button row is re-derived on every update, so a promoted guest grows
-    // a Start button automatically. Hidden during countdown. Everyone who has
-    // joined gets an Invite button; only the host also gets Start.
-    if (this.startText) { this.startText.destroy(); this.startText = null }
-    if (countdown === null && joined) {
-      let url = window.location.origin + '/?room=' + this.registry.get('roomCode');
-      this.startText = this.add.dom(GAME_WIDTH / 2, 460).createFromHTML(`
+    if (countdown !== null) {
+      this.statusText.setText('Get ready, game starts in ' + countdown);
+      return
+    }
+
+    this.statusText.setText('');
+    this.renderLobbyModal(hostId, maxPlayers, players, isHost, joined);
+  }
+
+  // The modal is rebuilt from scratch on every lobby update; slider values
+  // live in this.hostSettings (updated on input), so rebuilds can't lose them.
+  renderLobbyModal(hostId, maxPlayers, players, isHost, joined) {
+    let escape = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    let playerRows = players.map(player => {
+      let classes = 'player-row' + (player.id === this.socket.id ? ' me' : '');
+      let crown = player.id === hostId ? '👑 ' : '';
+      return `<div class='${classes}'>${crown}${escape(player.name)}</div>`;
+    }).join('');
+
+    let middlePanel;
+    if (isHost) {
+      middlePanel = `
+        <div class='lobby-panel host-settings'>
+          <h3>Host Settings</h3>
+          <label>Number of rounds <span class='slider-value' name='roundsValue'>${this.hostSettings.rounds}</span>
+            <input type='range' name='roundsRange' min='1' max='5' step='1' value='${this.hostSettings.rounds}'/>
+          </label>
+          <label>Timer <span class='slider-value' name='roundTimeValue'>${this.formatSeconds(this.hostSettings.roundTime)}</span>
+            <input type='range' name='roundTimeRange' min='60' max='300' step='15' value='${this.hostSettings.roundTime}'/>
+          </label>
+        </div>`;
+    } else if (joined) {
+      middlePanel = `<div class='waiting-note'>Waiting for the host to start the game ...</div>`;
+    } else {
+      middlePanel = `<div class='waiting-note'>Game is full — you will watch this round</div>`;
+    }
+
+    this.lobbyModal = this.add.dom(GAME_WIDTH / 2, 330).createFromHTML(`
+      <div class='lobby-modal'>
+        <h2>Party Lobby</h2>
+        <div class='player-count'>${players.length} / ${maxPlayers} players</div>
+        <div class='lobby-panel player-list'>${playerRows}</div>
+        ${middlePanel}
         <div class='lobby-buttons'>
           <button type='button' name='inviteButton' class='game-button'>Invite</button>
           ${isHost ? "<button type='button' name='startButton' class='game-button'>▶ Start game</button>" : ''}
         </div>
-      `);
-      this.startText.addListener('click');
-      this.startText.on('click', (event) => {
-        if (event.target.name === 'startButton') { this.socket.emit('host-start') }
-        if (event.target.name === 'inviteButton') { this.copyInviteLink(url, event.target) }
+      </div>
+    `);
+
+    let url = window.location.origin + '/?room=' + this.registry.get('roomCode');
+    this.lobbyModal.addListener('click');
+    this.lobbyModal.on('click', (event) => {
+      if (event.target.name === 'startButton') {
+        this.socket.emit('host-start', {
+          rounds: this.hostSettings.rounds,
+          roundTime: this.hostSettings.roundTime
+        });
+      }
+      if (event.target.name === 'inviteButton') { this.copyInviteLink(url, event.target) }
+    });
+
+    if (isHost) {
+      this.lobbyModal.addListener('input');
+      this.lobbyModal.on('input', (event) => {
+        // node.querySelector, not getChildByName: the latter only matches form
+        // elements (name doesn't reflect as a DOM property on spans).
+        if (event.target.name === 'roundsRange') {
+          this.hostSettings.rounds = parseInt(event.target.value, 10);
+          this.lobbyModal.node.querySelector("span[name='roundsValue']").textContent = this.hostSettings.rounds;
+        }
+        if (event.target.name === 'roundTimeRange') {
+          this.hostSettings.roundTime = parseInt(event.target.value, 10);
+          this.lobbyModal.node.querySelector("span[name='roundTimeValue']").textContent = this.formatSeconds(this.hostSettings.roundTime);
+        }
       });
     }
+  }
+
+  formatSeconds(totalSeconds) {
+    return Math.floor(totalSeconds / 60) + ':' + String(totalSeconds % 60).padStart(2, '0')
   }
 
   copyInviteLink(url, button) {
@@ -265,50 +376,22 @@ export class Lobby extends Phaser.Scene {
     area.remove();
   }
 
-  buildLineup(players, hostId, maxPlayers) {
-    for (let item of this.lineup) { item.destroy() }
-    this.lineup = [];
-
-    let centerX = GAME_WIDTH / 2;
-
-    this.lineup.push(new Text({
-      game: this, x: centerX, y: 158, text: players.length + ' / ' + maxPlayers + ' players',
-      style: { font: '15px Arial', fill: '#aaaaaa' }
-    }));
-
-    // One row: self first (yellow name), everyone else after.
-    let me = players.filter(player => player.id === this.socket.id);
-    let others = players.filter(player => player.id !== this.socket.id);
-    let lineup = me.concat(others);
-
-    let pitch = Math.min(90, (GAME_WIDTH - 100) / lineup.length);
-    let startX = centerX - (pitch * (lineup.length - 1)) / 2;
-
-    lineup.forEach((player, index) => {
-      let x = startX + index * pitch;
-      if (player.id === hostId) {
-        this.lineup.push(new Text({
-          game: this, x: x, y: 218, text: '★ host',
-          style: { font: '14px Arial', fill: '#41a4f5' }
-        }));
-      }
-      this.lineup.push(this.add.image(x, 265, 'avatarCircle64'));
-      this.lineup.push(new Text({
-        game: this, x: x, y: 315, text: player.name,
-        style: player.id === this.socket.id
-          ? { font: '15px Arial', fill: '#ffff00' }
-          : { font: '14px Arial', fill: '#ffffff' }
-      }));
-    });
+  onStartGame({ game, match }) {
+    this.scene.start('Play', { game: game, observer: false, match: match });
   }
 
-  onStartGame({ game }) {
-    this.scene.start('Play', { game: game, observer: false });
-  }
-
-  onObserveGame({ roomCode, game }) {
+  onObserveGame({ roomCode, game, match }) {
     this.rememberRoom(roomCode);
-    this.scene.start('Play', { game: game, observer: true });
+    this.scene.start('Play', { game: game, observer: true, match: match });
+  }
+
+  // Joining a room between rounds of a running match: wait out the window;
+  // the server sends start-game/observe-game itself when the round begins.
+  onWaitNextRound({ roomCode, currentRound, totalRounds }) {
+    this.rememberRoom(roomCode);
+    if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
+    if (this.lobbyModal) { this.lobbyModal.destroy(); this.lobbyModal = null }
+    this.statusText.setText('Match in progress — round ' + (currentRound + 1) + ' of ' + totalRounds + ' starts shortly ...');
   }
 
   setEventHandlers() {
@@ -317,6 +400,7 @@ export class Lobby extends Phaser.Scene {
     this.socket.on('start-game',           this.boundStart = this.onStartGame.bind(this));
     this.socket.on('observe-game',         this.boundObserve = this.onObserveGame.bind(this));
     this.socket.on('room-not-found',       this.boundNotFound = this.onRoomNotFound.bind(this));
+    this.socket.on('wait-next-round',      this.boundWait = this.onWaitNextRound.bind(this));
   }
 
   onShutdown() {
@@ -325,9 +409,10 @@ export class Lobby extends Phaser.Scene {
     this.socket.off('start-game',           this.boundStart);
     this.socket.off('observe-game',         this.boundObserve);
     this.socket.off('room-not-found',       this.boundNotFound);
+    this.socket.off('wait-next-round',      this.boundWait);
 
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
-    this.startText = null;
+    if (this.lobbyModal) { this.lobbyModal.destroy(); this.lobbyModal = null }
     this.registry.get('Sound').stopFadedMusic();
     this.events.off('shutdown', this.onShutdown, this);
   }
