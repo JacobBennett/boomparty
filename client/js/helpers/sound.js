@@ -3,9 +3,22 @@
 const MUSIC_VOLUME = 0;
 const SOUND_VOLUME = 0;
 
-// Replaced tracks get their real volume here; everything else stays muted.
+// Replaced tracks/effects get their real volume here; everything else stays muted.
 const MUSIC_VOLUMES = {
-  bgMusicLobby: 0.5
+  bgMusicLobby: 0.25
+};
+
+const SOUND_VOLUMES = {
+  FxPickup01: 0.8,
+  FxBoom01: 0.8,
+  FxClick01: 0.5,
+  FxDeath01: 0.8
+};
+
+// Effects that can fire in bursts (e.g. chain-reaction bombs arrive in one
+// frame) suppress repeats inside their window so they play once per burst.
+const SOUND_DEBOUNCE_MS = {
+  FxBoom01: 100
 };
 
 export class Sound {
@@ -13,11 +26,10 @@ export class Sound {
     this._soundOn = true;
     this._musicOn = true;
     this._bgMusicPlaying = false;
-    this._bgSoundPlaying = false;
     this._currentMusic=null;
-    this._currentSound=null;
     this._musicSound=null;
     this._fadingSound=null;
+    this._lastPlayedAt={};
   }
 
   preload(scene){
@@ -27,6 +39,9 @@ export class Sound {
     scene.load.audio('bgMusic03', ['sound/Musics/Happy-Trancin.mp3']); // https://soundimage.org/dance-techno/
     scene.load.audio('bgMusic04', ['sound/Musics/Electric-Rain_Looping.mp3']); // https://soundimage.org/dance-techno/
 
+    scene.load.audio('FxPickup01', ['sound/Effects/quirky-coin.mp3']);
+    scene.load.audio('FxClick01', ['sound/Effects/explosion-big.mp3']);
+    scene.load.audio('FxBoom01', ['sound/Effects/explosion-big.mp3']);
     scene.load.audio('FxExplosion01', ['sound/Effects/Explosion3.mp3']);
     scene.load.audio('FxPickItem01', ['sound/Effects/PowerUp18.mp3']);
     scene.load.audio('FxDeath01', ['sound/Effects/VOXEfrt_Cry of pain (ID 2361)_BSB.mp3']); // https://bigsoundbank.com/detail-2361-cry-of-pain.html
@@ -84,16 +99,21 @@ export class Sound {
   }
 
   playSound(scene,soundId){
-    if (this.bgSoundPlaying === true && !(this._currentMusic==soundId)){
-      scene.sound.stopByKey(this._currentSound);
-      this.bgSoundPlaying = false;
-      scene.registry.set('Sound', this);
+    // Burst suppression: repeats of a debounced key inside its window no-op.
+    let debounce = SOUND_DEBOUNCE_MS[soundId];
+    if (debounce) {
+      let now = Date.now();
+      if (this._lastPlayedAt[soundId] && now - this._lastPlayedAt[soundId] < debounce) { return }
+      this._lastPlayedAt[soundId] = now;
     }
-    if (this.soundOn === true && this.bgSoundPlaying === false) {
-      scene.sound.add(soundId, { volume: SOUND_VOLUME, loop: false }).play();
-      this.bgSoundPlaying = true;
-      this._currentSound=soundId;
-      scene.registry.set('Sound', this);
+
+    // Effects overlap freely (a pickup shouldn't cut off an explosion); each
+    // one is its own sound instance, destroyed when it finishes.
+    if (this.soundOn === true) {
+      let volume = SOUND_VOLUMES[soundId] !== undefined ? SOUND_VOLUMES[soundId] : SOUND_VOLUME;
+      let effect = scene.sound.add(soundId, { volume: volume, loop: false });
+      effect.once('complete', () => effect.destroy());
+      effect.play();
     }
   }
 
@@ -119,13 +139,5 @@ export class Sound {
 
   get bgMusicPlaying() {
     return this._bgMusicPlaying;
-  }
-
-  set bgSoundPlaying(value) {
-    this._bgSoundPlaying = value;
-  }
-
-  get bgSoundPlaying() {
-    return this._bgSoundPlaying;
   }
 }

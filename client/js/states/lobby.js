@@ -169,6 +169,9 @@ export class Lobby extends Phaser.Scene {
 
     form.addListener('click');
     form.on('click', (event) => {
+      if (event.target.name === 'playButton' || event.target.name === 'changeName') {
+        this.registry.get('Sound').playSound(this, 'FxClick01');
+      }
       if (event.target.name === 'playButton') { this.leaveEntryScreen(name) }
       if (event.target.name === 'changeName') { this.showNameForm(name) }
     });
@@ -191,6 +194,7 @@ export class Lobby extends Phaser.Scene {
       let name = input.value.trim();
       if (!name) { input.focus(); return }
 
+      this.registry.get('Sound').playSound(this, 'FxClick01');
       this.saveStoredName(name);
       this.leaveEntryScreen(name);
     };
@@ -318,6 +322,9 @@ export class Lobby extends Phaser.Scene {
     let url = window.location.origin + '/?room=' + this.registry.get('roomCode');
     this.lobbyModal.addListener('click');
     this.lobbyModal.on('click', (event) => {
+      if (event.target.name === 'startButton' || event.target.name === 'inviteButton') {
+        this.registry.get('Sound').playSound(this, 'FxClick01');
+      }
       if (event.target.name === 'startButton') {
         this.socket.emit('host-start', {
           rounds: this.hostSettings.rounds,
