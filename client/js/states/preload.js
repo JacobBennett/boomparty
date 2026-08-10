@@ -6,8 +6,8 @@ export class Preload extends Phaser.Scene {
 
   preload() {
     // Lobby:
-    this.load.image('lobbyPoster', 'images/menu/lobby-bg-poster.png');
-    this.load.video('lobbyBg', 'video/lobby2-bg.mp4', true);
+    this.load.image('lobbyPoster', 'images/menu/boomparty-dimension-poster.webp');
+    this.load.video('lobbyBg', 'video/lobby2-bg-resized-cropped.mp4', true);
 
     // Map tiles (frame 0 = wall, 1 = balk, 2 = floor):
     this.load.spritesheet('tiles', 'maps/tileset.png', { frameWidth: 32, frameHeight: 32 });
