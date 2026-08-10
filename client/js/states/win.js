@@ -74,7 +74,19 @@ class Win extends Phaser.Scene {
       this.input.on('pointerdown', this.returnToLobby, this);
     }
 
-    this.registry.get('Sound').playMusic(this, 'bgMusic01');
+    if (this.mode === 'round') {
+      // Lobby music during the round summary, fading out over the last two
+      // seconds before the next round. Wall-clock timer: the Phaser clock is
+      // throttled in background tabs, but the server's schedule isn't.
+      this.registry.get('Sound').playMusic(this, 'bgMusicLobby');
+      let fadeDelay = Math.max(0, ((d.nextRoundIn || 10) - 2) * 1000);
+      this.fadeTimeout = setTimeout(() => {
+        this.registry.get('Sound').fadeOutMusic(this, 2000);
+      }, fadeDelay);
+    } else {
+      this.registry.get('Sound').playMusic(this, 'bgMusic01');
+    }
+
     this.events.on('shutdown', this.onShutdown, this);
   }
 
@@ -93,6 +105,8 @@ class Win extends Phaser.Scene {
   onShutdown() {
     if (this.boundStart) { this.socket.off('start-game', this.boundStart); this.boundStart = null }
     if (this.boundObserve) { this.socket.off('observe-game', this.boundObserve); this.boundObserve = null }
+    if (this.fadeTimeout) { clearTimeout(this.fadeTimeout); this.fadeTimeout = null }
+    this.registry.get('Sound').stopFadedMusic();
     this.input.keyboard.off('keydown-ENTER', this.returnToLobby, this);
     this.events.off('shutdown', this.onShutdown, this);
   }

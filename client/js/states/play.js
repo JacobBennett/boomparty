@@ -283,7 +283,7 @@ class Play extends Phaser.Scene {
     }
     findAndDestroyFrom(id, this.bombs)
 
-    this.registry.get('Sound').playSound(this, 'FxExplosion01');
+    this.registry.get('Sound').playSound(this, 'FxBoom01');
 
     for (let cell of blastedCells) {
       this.blasts.add(new FireBlast(this, cell));
@@ -328,7 +328,7 @@ class Play extends Phaser.Scene {
   onSpoilPickedUp({ playerId, spoilId, spoilType }) {
     if (this.player && playerId === this.player.id) {
       this.player.pickSpoil(spoilType);
-      this.registry.get('Sound').playSound(this, 'FxPickItem01');
+      this.registry.get('Sound').playSound(this, 'FxPickup01');
     }
 
     findAndDestroyFrom(spoilId, this.spoils)
