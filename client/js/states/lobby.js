@@ -12,15 +12,12 @@ export class Lobby extends Phaser.Scene {
   create() {
     this.socket = this.registry.get('socketIO');
 
-    // Animated backdrop: looping muted video, cover-scaled (1280x720 x 0.8,
-    // crops 64px per side). Its own first frame sits underneath as a poster
-    // while the video loads. A full-canvas scrim keeps text readable on top.
-    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'lobbyPoster').setScale(0.8);
+    // Animated backdrop: looping muted video, pre-rendered at the canvas's
+    // native 896x576. The 2x poster (1792x1152) sits underneath while the
+    // video loads. A bottom scrim keeps text readable on top.
+    this.add.image(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'lobbyPoster').setScale(0.5);
     this.bgVideo = this.add.video(GAME_WIDTH / 2, GAME_HEIGHT / 2, 'lobbyBg');
     this.bgVideo.setMute(true);
-    // setScale, not setDisplaySize: the video has no texture frame until the
-    // first frame decodes, and setDisplaySize throws on a frameless video.
-    this.bgVideo.setScale(0.8); // 1280x720 -> 1024x576, covers the canvas
     this.bgVideo.play(true);
 
     // Browsers may refuse to autoplay even muted video in background tabs

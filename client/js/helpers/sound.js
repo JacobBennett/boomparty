@@ -32,24 +32,21 @@ export class Sound {
     this._lastPlayedAt={};
   }
 
+  // Only audible (nonzero-volume) sounds are loaded; muted placeholder keys
+  // are still referenced by the scenes but no-op in playMusic/playSound until
+  // a real track lands here with a volume entry above.
   preload(scene){
     scene.load.audio('bgMusicLobby', ['sound/Musics/Iron Siege.mp3']);
-    scene.load.audio('bgMusic01', ['sound/Musics/TownTheme.mp3']);
-    scene.load.audio('bgMusic02', ['sound/Musics/Techno-Randomness_Looping.mp3']); // https://soundimage.org/dance-techno/
-    scene.load.audio('bgMusic03', ['sound/Musics/Happy-Trancin.mp3']); // https://soundimage.org/dance-techno/
-    scene.load.audio('bgMusic04', ['sound/Musics/Electric-Rain_Looping.mp3']); // https://soundimage.org/dance-techno/
 
     scene.load.audio('FxPickup01', ['sound/Effects/quirky-coin.mp3']);
-    scene.load.audio('FxClick01', ['sound/Effects/explosion-big.mp3']);
+    scene.load.audio('FxClick01', ['sound/Effects/quirky-coin.m4a']);
     scene.load.audio('FxBoom01', ['sound/Effects/explosion-big.mp3']);
-    scene.load.audio('FxExplosion01', ['sound/Effects/Explosion3.mp3']);
-    scene.load.audio('FxPickItem01', ['sound/Effects/PowerUp18.mp3']);
     scene.load.audio('FxDeath01', ['sound/Effects/VOXEfrt_Cry of pain (ID 2361)_BSB.mp3']); // https://bigsoundbank.com/detail-2361-cry-of-pain.html
-    scene.load.audio('FxClick01', ['sound/Effects/UI_Quirky21.mp3']);
-    scene.load.audio('FxNewUser01', ['sound/Effects/PowerUp18.mp3']);
   }
 
   playMusic(scene,soundId){
+    // Muted placeholder keys aren't loaded at all; skip them quietly.
+    if (!scene.cache.audio.exists(soundId)) { return }
     if (this.bgMusicPlaying === true && !(this._currentMusic==soundId)){
       scene.sound.stopByKey(this._currentMusic);
       //scene.sound.stopAll();
@@ -99,6 +96,8 @@ export class Sound {
   }
 
   playSound(scene,soundId){
+    // Muted placeholder keys aren't loaded at all; skip them quietly.
+    if (!scene.cache.audio.exists(soundId)) { return }
     // Burst suppression: repeats of a debounced key inside its window no-op.
     let debounce = SOUND_DEBOUNCE_MS[soundId];
     if (debounce) {

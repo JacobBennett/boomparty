@@ -42,12 +42,42 @@ var config = {
 
 var game = new Phaser.Game(config);
 
+// Decorative frame around the canvas: scale the frame image (independently on
+// each axis) so its black window coincides exactly with the live canvas rect.
+// Measured from images/menu/border-boomparty.png.
+const FRAME = { imgWidth: 2048, imgHeight: 1338, holeX: 459, holeY: 288, holeWidth: 1141, holeHeight: 689 };
+
+function positionCanvasFrame() {
+  let frame = document.getElementById('canvas-frame');
+  let canvas = document.querySelector('#game-container canvas');
+  if (!frame || !canvas) { return }
+
+  let rect = canvas.getBoundingClientRect();
+  if (rect.width === 0) { return }
+
+  let scaleX = rect.width / FRAME.holeWidth;
+  let scaleY = rect.height / FRAME.holeHeight;
+
+  frame.style.width = (FRAME.imgWidth * scaleX) + 'px';
+  frame.style.height = (FRAME.imgHeight * scaleY) + 'px';
+  frame.style.left = (rect.left - FRAME.holeX * scaleX) + 'px';
+  frame.style.top = (rect.top - FRAME.holeY * scaleY) + 'px';
+  frame.style.display = 'block';
+}
+
+// The canvas appears asynchronously during boot; poll briefly until it exists.
+let framePoll = setInterval(function () {
+  positionCanvasFrame();
+  if (document.querySelector('#game-container canvas')) { clearInterval(framePoll) }
+}, 100);
+
 // Phaser's own resize pass measures the parent only after scaling, so a single
 // resize event (device rotation, programmatic resize) lands one frame behind.
 // Re-measure first, then refresh, so the canvas settles immediately.
 window.addEventListener('resize', function () {
   game.scale.getParentBounds();
   game.scale.refresh();
+  positionCanvasFrame();
 });
 
 // Handy for debugging from the browser console.

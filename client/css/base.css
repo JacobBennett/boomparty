@@ -20,6 +20,21 @@ body {
   overflow: hidden;
 }
 
+/* Decorative frame around the canvas; positioned by positionCanvasFrame()
+   in app.js so its black window always coincides with the canvas. */
+#canvas-frame {
+  position: fixed;
+  pointer-events: none;
+  display: none;
+  z-index: 0;
+}
+
+/* Keep the game (and Phaser's DOM overlay) above the frame image. */
+#game-container {
+  position: relative;
+  z-index: 1;
+}
+
 .name-form input {
   display: block;
   width: 260px;
