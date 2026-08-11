@@ -86,6 +86,13 @@ body {
   box-shadow: 4px 4px 5px rgba(0,0,0,0.5);
 }
 
+/* Sound settings variant: narrower, and stacked above a Party Lobby modal
+   that may be rebuilt (and re-appended) later by lobby updates. */
+.lobby-modal.sound-settings {
+  width: 300px;
+  z-index: 5;
+}
+
 .lobby-modal h2 {
   font: bold 22px Arial, sans-serif;
   text-align: center;
