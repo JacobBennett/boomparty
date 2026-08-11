@@ -9,8 +9,8 @@ const MUSIC_VOLUMES = {
 };
 
 const SOUND_VOLUMES = {
-  FxPickup01: 0.8,
-  FxBoom01: 0.8,
+  FxPickup01: 0.4,
+  FxBoom01: 0.4,
   FxClick01: 0.5,
   FxDeath01: 0.8
 };
@@ -39,9 +39,9 @@ export class Sound {
     scene.load.audio('bgMusicLobby', ['sound/Musics/Iron Siege.mp3']);
 
     scene.load.audio('FxPickup01', ['sound/Effects/quirky-coin.mp3']);
-    scene.load.audio('FxClick01', ['sound/Effects/quirky-coin.m4a']);
-    scene.load.audio('FxBoom01', ['sound/Effects/explosion-big.mp3']);
-    scene.load.audio('FxDeath01', ['sound/Effects/VOXEfrt_Cry of pain (ID 2361)_BSB.mp3']); // https://bigsoundbank.com/detail-2361-cry-of-pain.html
+    scene.load.audio('FxClick01', ['sound/Effects/explosion.m4a']);
+    scene.load.audio('FxBoom01', ['sound/Effects/explosion.m4a']);
+    scene.load.audio('FxDeath01', ['sound/Effects/death.mp3']);
   }
 
   playMusic(scene,soundId){
