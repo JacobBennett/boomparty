@@ -34,7 +34,7 @@ export class Lobby extends Phaser.Scene {
     this.createScrimTexture();
     this.add.image(GAME_WIDTH / 2, GAME_HEIGHT, 'lobbyScrim').setOrigin(0.5, 1);
 
-    this.createMuteButton();
+    this.createSoundButton();
 
     this.statusText = new Text({
       game: this,
@@ -88,41 +88,78 @@ export class Lobby extends Phaser.Scene {
     canvasTexture.refresh();
   }
 
-  createMuteButton() {
-    // Track mute state ourselves: Phaser's sound.mute getter reads the Web
-    // Audio gain node, which lags behind the setter's scheduled change.
-    this.isMuted = this.loadStoredMute();
-    this.sound.mute = this.isMuted;
-
-    this.muteButton = new Text({
+  createSoundButton() {
+    this.soundModal = null;
+    this.soundButton = new Text({
       game: this,
       x: GAME_WIDTH - 28,
       y: 28,
-      text: this.isMuted ? '🔇' : '🔊',
+      text: this.soundButtonIcon(),
       style: { font: '22px Arial' }
     });
-    this.muteButton.setDepth(20);
-    this.muteButton.setInteractive({ useHandCursor: true });
-    this.muteButton.on('pointerdown', () => {
-      this.isMuted = !this.isMuted;
-      this.sound.mute = this.isMuted;
-      this.muteButton.setText(this.isMuted ? '🔇' : '🔊');
-      this.saveStoredMute(this.isMuted);
+    this.soundButton.setDepth(20);
+    this.soundButton.setInteractive({ useHandCursor: true });
+    this.soundButton.on('pointerdown', () => {
+      if (this.soundModal) { this.closeSoundSettings() } else { this.showSoundSettings() }
     });
   }
 
-  loadStoredMute() {
-    try {
-      return localStorage.getItem('boomparty.muted') === 'true'
-    } catch (error) {
-      return false
-    }
+  soundButtonIcon() {
+    let sound = this.registry.get('Sound');
+    return (sound.soundLevel === 0 && sound.musicLevel === 0) ? '🔇' : '🔊';
   }
 
-  saveStoredMute(muted) {
-    try {
-      localStorage.setItem('boomparty.muted', muted ? 'true' : 'false');
-    } catch (error) { /* private browsing etc. — just don't persist */ }
+  showSoundSettings() {
+    let sound = this.registry.get('Sound');
+    let soundPct = Math.round(sound.soundLevel * 100);
+    let musicPct = Math.round(sound.musicLevel * 100);
+
+    this.soundModal = this.add.dom(GAME_WIDTH / 2, GAME_HEIGHT / 2).createFromHTML(`
+      <div class='lobby-modal sound-settings'>
+        <h2>Sound Settings</h2>
+        <div class='lobby-panel host-settings'>
+          <label>Sound <span class='slider-value' name='soundValue'>${soundPct}%</span>
+            <input type='range' name='soundRange' min='0' max='100' step='5' value='${soundPct}'/>
+          </label>
+          <label>Music <span class='slider-value' name='musicValue'>${musicPct}%</span>
+            <input type='range' name='musicRange' min='0' max='100' step='5' value='${musicPct}'/>
+          </label>
+        </div>
+        <div class='lobby-buttons'>
+          <button type='button' name='closeButton' class='game-button'>Close</button>
+        </div>
+      </div>
+    `);
+
+    this.soundModal.addListener('input');
+    this.soundModal.on('input', (event) => {
+      let level = parseInt(event.target.value, 10) / 100;
+      if (event.target.name === 'soundRange') {
+        sound.setSoundLevel(level);
+        this.soundModal.node.querySelector("span[name='soundValue']").textContent = event.target.value + '%';
+      }
+      if (event.target.name === 'musicRange') {
+        // The playing lobby track follows the drag live.
+        sound.setMusicLevel(level);
+        this.soundModal.node.querySelector("span[name='musicValue']").textContent = event.target.value + '%';
+      }
+      this.soundButton.setText(this.soundButtonIcon());
+    });
+
+    // 'change' fires when a slider is released: preview the effect loudness.
+    this.soundModal.addListener('change');
+    this.soundModal.on('change', (event) => {
+      if (event.target.name === 'soundRange') { sound.playSound(this, 'FxBoom01') }
+    });
+
+    this.soundModal.addListener('click');
+    this.soundModal.on('click', (event) => {
+      if (event.target.name === 'closeButton') { this.closeSoundSettings() }
+    });
+  }
+
+  closeSoundSettings() {
+    if (this.soundModal) { this.soundModal.destroy(); this.soundModal = null }
   }
 
   loadStoredName() {
@@ -417,6 +454,7 @@ export class Lobby extends Phaser.Scene {
 
     if (this.nameForm) { this.nameForm.destroy(); this.nameForm = null }
     if (this.lobbyModal) { this.lobbyModal.destroy(); this.lobbyModal = null }
+    this.closeSoundSettings();
     this.registry.get('Sound').stopFadedMusic();
     this.events.off('shutdown', this.onShutdown, this);
   }

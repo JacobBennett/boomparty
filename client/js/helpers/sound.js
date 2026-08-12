@@ -30,6 +30,58 @@ export class Sound {
     this._musicSound=null;
     this._fadingSound=null;
     this._lastPlayedAt={};
+    this._musicBaseVolume = 0;
+
+    // User-facing master levels (0-1); they multiply the per-key base volumes
+    // above and persist across visits.
+    let levels = this.loadStoredLevels();
+    this._soundLevel = levels.sound;
+    this._musicLevel = levels.music;
+  }
+
+  loadStoredLevels() {
+    try {
+      // The binary mute toggle predates the volume sliders; carry it over once.
+      if (localStorage.getItem('boomparty.muted') === 'true') {
+        localStorage.removeItem('boomparty.muted');
+        localStorage.setItem('boomparty.soundVolume', '0');
+        localStorage.setItem('boomparty.musicVolume', '0');
+        return { sound: 0, music: 0 };
+      }
+      localStorage.removeItem('boomparty.muted');
+      return {
+        sound: this.clampLevel(localStorage.getItem('boomparty.soundVolume')),
+        music: this.clampLevel(localStorage.getItem('boomparty.musicVolume'))
+      };
+    } catch (error) {
+      return { sound: 1, music: 1 };
+    }
+  }
+
+  clampLevel(value) {
+    let level = parseFloat(value);
+    return Number.isFinite(level) ? Math.min(1, Math.max(0, level)) : 1;
+  }
+
+  get soundLevel() { return this._soundLevel }
+  get musicLevel() { return this._musicLevel }
+
+  setSoundLevel(level) {
+    this._soundLevel = Math.min(1, Math.max(0, level));
+    this.persistLevel('boomparty.soundVolume', this._soundLevel);
+  }
+
+  setMusicLevel(level) {
+    this._musicLevel = Math.min(1, Math.max(0, level));
+    this.persistLevel('boomparty.musicVolume', this._musicLevel);
+    // Adjust the playing track live (but leave a mid-fade track alone).
+    if (this._musicSound && this.bgMusicPlaying === true) {
+      this._musicSound.setVolume(this._musicBaseVolume * this._musicLevel);
+    }
+  }
+
+  persistLevel(key, level) {
+    try { localStorage.setItem(key, String(level)) } catch (error) { /* private browsing etc. */ }
   }
 
   // Only audible (nonzero-volume) sounds are loaded; muted placeholder keys
@@ -54,8 +106,9 @@ export class Sound {
       scene.registry.set('Sound', this);
     }
     if (this.musicOn === true && this.bgMusicPlaying === false) {
-      let volume = MUSIC_VOLUMES[soundId] !== undefined ? MUSIC_VOLUMES[soundId] : MUSIC_VOLUME;
-      this._musicSound = scene.sound.add(soundId, { volume: volume, loop: true });
+      let baseVolume = MUSIC_VOLUMES[soundId] !== undefined ? MUSIC_VOLUMES[soundId] : MUSIC_VOLUME;
+      this._musicBaseVolume = baseVolume;
+      this._musicSound = scene.sound.add(soundId, { volume: baseVolume * this._musicLevel, loop: true });
       this._musicSound.play();
       this.bgMusicPlaying = true;
       this._currentMusic=soundId;
@@ -109,8 +162,8 @@ export class Sound {
     // Effects overlap freely (a pickup shouldn't cut off an explosion); each
     // one is its own sound instance, destroyed when it finishes.
     if (this.soundOn === true) {
-      let volume = SOUND_VOLUMES[soundId] !== undefined ? SOUND_VOLUMES[soundId] : SOUND_VOLUME;
-      let effect = scene.sound.add(soundId, { volume: volume, loop: false });
+      let baseVolume = SOUND_VOLUMES[soundId] !== undefined ? SOUND_VOLUMES[soundId] : SOUND_VOLUME;
+      let effect = scene.sound.add(soundId, { volume: baseVolume * this._soundLevel, loop: false });
       effect.once('complete', () => effect.destroy());
       effect.play();
     }
