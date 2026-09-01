@@ -51,9 +51,9 @@ class Play extends Phaser.Scene {
     this.events.on('shutdown', this.onShutdown, this);
   }
 
-  update() {
+  update(time, delta) {
     if (this.player && this.player.alive) {
-      this.player.update();
+      this.player.update(delta);
       this.player.syncLabel();
     }
 
@@ -127,10 +127,11 @@ class Play extends Phaser.Scene {
   }
 
   createMap() {
-    this.walls = this.physics.add.staticGroup();
-    this.balks = this.physics.add.staticGroup();
+    // Plain display groups: the player walks the grid rather than colliding
+    // with these, so they need no physics bodies of their own.
+    this.walls = this.add.group();
+    this.balks = this.add.group();
     this.balkSprites = new Map();
-    this.solidBodies = new Map();
 
     let matrix = this.cellMatrix();
     this.solidGrid = matrix;
@@ -143,17 +144,13 @@ class Play extends Phaser.Scene {
         this.add.image(x, y, 'tiles', FLOOR_FRAME);
 
         if (matrix[row][col] === NON_DESTRUCTIBLE_CELL) {
-          let wall = this.walls.create(x, y, 'tiles', WALL_FRAME);
-          this.solidBodies.set(row + '_' + col, wall);
+          this.walls.create(x, y, 'tiles', WALL_FRAME);
         } else if (matrix[row][col] === DESTRUCTIBLE_CELL) {
           let balk = this.balks.create(x, y, 'tiles', BALK_FRAME);
           this.balkSprites.set(row + '_' + col, balk);
-          this.solidBodies.set(row + '_' + col, balk);
         }
       }
     }
-
-    this.refreshTileFaces();
 
     this.player  = null;
     this.bones   = this.add.group();
@@ -168,19 +165,11 @@ class Play extends Phaser.Scene {
     return this.solidGrid[row][col] !== EMPTY_CELL
   }
 
-  // Disable collision on tile faces that abut another solid tile (what Phaser
-  // tilemap layers do natively). Without this, a body sliding along a flat
-  // wall catches on the seam between every pair of adjacent tile bodies.
-  refreshTileFaces() {
-    for (let [key, sprite] of this.solidBodies) {
-      let [row, col] = key.split('_').map(Number);
-      let cc = sprite.body.checkCollision;
-      cc.up    = !this.isSolidCell(row - 1, col);
-      cc.down  = !this.isSolidCell(row + 1, col);
-      cc.left  = !this.isSolidCell(row, col - 1);
-      cc.right = !this.isSolidCell(row, col + 1);
-      cc.none  = !(cc.up || cc.down || cc.left || cc.right);
+  bombAt(col, row) {
+    for (let bomb of this.bombs.getChildren()) {
+      if (bomb.gridCol === col && bomb.gridRow === row) { return true }
     }
+    return false
   }
 
   createPlayers() {
@@ -211,14 +200,9 @@ class Play extends Phaser.Scene {
   createColliders() {
     if (!this.player) { return }
 
-    this.physics.add.collider(this.player, this.walls);
-    this.physics.add.collider(this.player, this.balks);
-
-    // You can walk off the bomb you are standing on, but never back onto a bomb.
-    this.physics.add.collider(this.player, this.bombs, null, (player, bomb) => {
-      return !(player.currentCol() === bomb.gridCol && player.currentRow() === bomb.gridRow)
-    });
-
+    // Walls, crates and bombs block the player through the grid walk in
+    // Player#canEnter, not through Arcade separation. Only the pickup and
+    // blast tests stay physics-driven.
     this.physics.add.overlap(this.player, this.spoils, this.onPlayerVsSpoil, null, this);
     this.physics.add.overlap(this.player, this.blasts, this.onPlayerVsBlast, null, this);
   }
@@ -289,16 +273,13 @@ class Play extends Phaser.Scene {
       this.blasts.add(new FireBlast(this, cell));
     }
 
-    let destroyedAny = false;
     for (let cell of blastedCells) {
       if (!cell.destroyed) { continue }
 
       let balk = this.balkSprites.get(cell.row + '_' + cell.col);
       if (balk) {
         this.balkSprites.delete(cell.row + '_' + cell.col);
-        this.solidBodies.delete(cell.row + '_' + cell.col);
         this.solidGrid[cell.row][cell.col] = EMPTY_CELL;
-        destroyedAny = true;
         this.balks.remove(balk);
         this.tweens.add({
           targets: balk,
@@ -308,9 +289,6 @@ class Play extends Phaser.Scene {
         });
       }
     }
-
-    // Destroyed crates re-expose the previously interior faces of their neighbors.
-    if (destroyedAny) { this.refreshTileFaces() }
 
     for (let cell of blastedCells) {
       if (!cell.destroyed || !cell.spoil) { continue }
